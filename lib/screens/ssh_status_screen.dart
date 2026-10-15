@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ssh_app/models/server_config.dart';
 import 'package:ssh_app/providers/ssh_providers.dart';
+import 'package:ssh_app/screens/terminal_screen.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_state.dart';
 import 'package:uuid/uuid.dart';
 
@@ -18,10 +19,8 @@ class SSHStatusScreen extends ConsumerStatefulWidget {
 
 class _SSHStatusScreenState extends ConsumerState<SSHStatusScreen> {
   late final String _sessionId;
-  String? _commandOutput;
-  bool _runningCommand = false;
-  String? _commandError;
   bool _hasPromptedHostKey = false;
+  bool _openedTerminal = false;
 
   @override
   void initState() {
@@ -39,9 +38,8 @@ class _SSHStatusScreenState extends ConsumerState<SSHStatusScreen> {
 
   Future<void> _connect() async {
     setState(() {
-      _commandOutput = null;
-      _commandError = null;
       _hasPromptedHostKey = false;
+      _openedTerminal = false;
     });
     try {
       await ref.read(sshSessionControllerProvider(_args)).connect();
@@ -50,31 +48,15 @@ class _SSHStatusScreenState extends ConsumerState<SSHStatusScreen> {
     }
   }
 
-  Future<void> _runTestCommand() async {
-    setState(() {
-      _runningCommand = true;
-      _commandError = null;
-    });
-    try {
-      final output = await ref
-          .read(sshSessionControllerProvider(_args))
-          .execute('uname -a');
-      if (mounted) {
-        setState(() {
-          _commandOutput = output.trim().isEmpty ? '(no output)' : output.trim();
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _commandError = '$e';
-        });
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _runningCommand = false);
-      }
-    }
+  void _openTerminal() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => TerminalScreen(
+          server: widget.server,
+          sessionId: _sessionId,
+        ),
+      ),
+    );
   }
 
   Future<void> _showHostKeyDialog(HostKeyChallenge challenge) async {
@@ -195,6 +177,18 @@ class _SSHStatusScreenState extends ConsumerState<SSHStatusScreen> {
 
     final asyncState = ref.watch(sshSessionStateProvider(_args));
     final state = asyncState.asData?.value ?? const SSHConnectionState.connecting();
+
+    ref.listen(sshSessionStateProvider(_args), (previous, next) {
+      final status = next.asData?.value.status;
+      if (status == SSHConnectionStatus.connected && !_openedTerminal) {
+        _openedTerminal = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _openTerminal();
+          }
+        });
+      }
+    });
 
     // Check if host key confirmation challenge is awaiting
     if (state.status == SSHConnectionStatus.awaitingHostKeyConfirmation &&
@@ -336,59 +330,10 @@ class _SSHStatusScreenState extends ConsumerState<SSHStatusScreen> {
 
           // Connected actions card
           if (state.isConnected) ...[
-            Card(
-              margin: EdgeInsets.zero,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Phase 2 Test Command', style: theme.textTheme.titleMedium),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Test the SSH connection by executing `uname -a` on the remote server.',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 12),
-                    FilledButton.icon(
-                      onPressed: _runningCommand ? null : _runTestCommand,
-                      icon: _runningCommand
-                          ? const SizedBox.square(
-                              dimension: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.terminal),
-                      label: const Text('Run `uname -a`'),
-                    ),
-                    if (_commandError != null) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        'Command failed: $_commandError',
-                        style: TextStyle(color: scheme.error),
-                      ),
-                    ],
-                    if (_commandOutput != null) ...[
-                      const SizedBox(height: 12),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.black,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: SelectableText(
-                          _commandOutput!,
-                          style: const TextStyle(
-                            color: Colors.lightGreenAccent,
-                            fontFamily: 'monospace',
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
+            FilledButton.icon(
+              onPressed: _openTerminal,
+              icon: const Icon(Icons.terminal),
+              label: const Text('Open terminal'),
             ),
           ],
 

@@ -36,7 +36,7 @@ dependencies:
   cupertino_icons: ^1.0.8
 
   # Pinned to the current stable releases on pub.dev (checked 2026-10-15).
-  # xterm is unused until the terminal screen in Phase 3.
+  # xterm renders the interactive shell started in Phase 3.
   flutter_riverpod: 3.4.3
   flutter_secure_storage: 11.2.0
   uuid: 4.6.0

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' if (dart.library.js_interop) 'package:ssh_app/services/ssh/io_stub.dart';
+import 'dart:typed_data';
 
 import 'package:dartssh2/dartssh2.dart';
 import 'package:ssh_app/models/auth_type.dart';
@@ -39,6 +40,8 @@ class SSHConnectionSession {
   SSHConnectionState _state = const SSHConnectionState.disconnected();
 
   SSHClient? _client;
+  SSHSession? _shell;
+  Future<SSHSession>? _openingShell;
   ServerCredentials? _credentials;
   bool _intentionalDisconnect = false;
   bool _isDisposed = false;
@@ -48,6 +51,9 @@ class SSHConnectionSession {
   Stream<SSHConnectionState> get stateStream => _stateController.stream;
   bool get isConnected => _state.status == SSHConnectionStatus.connected;
   SSHClient? get client => _client;
+
+  /// The interactive PTY shell, once [openShell] has succeeded.
+  SSHSession? get shell => _shell;
 
   void _emit(SSHConnectionState newState) {
     if (_isDisposed) return;
@@ -73,6 +79,8 @@ class SSHConnectionSession {
   }
 
   Future<void> _establishConnection(ServerCredentials credentials) async {
+    _closeShell();
+
     // 1. Prepare authentication identities
     List<SSHKeyPair>? identities;
     if (server.authType == AuthType.privateKey) {
@@ -235,6 +243,73 @@ class SSHConnectionSession {
     });
   }
 
+  /// Starts one interactive shell on the connected client.
+  ///
+  /// A second call waits for the in-flight open, then returns that shell.
+  /// The previous shell is closed when the connection is rebuilt.
+  Future<SSHSession> openShell({
+    int columns = 80,
+    int rows = 24,
+  }) {
+    final pending = _openingShell;
+    if (pending != null) {
+      return pending;
+    }
+    final future = _openShell(columns: columns, rows: rows);
+    _openingShell = future;
+    return future.whenComplete(() {
+      if (identical(_openingShell, future)) {
+        _openingShell = null;
+      }
+    });
+  }
+
+  Future<SSHSession> _openShell({
+    required int columns,
+    required int rows,
+  }) async {
+    final client = _client;
+    if (client == null || !isConnected) {
+      throw const SSHUnexpectedDisconnectException(
+        'Cannot open a shell: not connected.',
+      );
+    }
+    _closeShell();
+    final shell = await client.shell(
+      pty: SSHPtyConfig(
+        type: 'xterm-256color',
+        width: columns < 1 ? 80 : columns,
+        height: rows < 1 ? 24 : rows,
+      ),
+    );
+    _shell = shell;
+    return shell;
+  }
+
+  /// Forwards the local terminal size to the remote PTY.
+  void resizeShell(
+    int columns,
+    int rows, [
+    int pixelWidth = 0,
+    int pixelHeight = 0,
+  ]) {
+    _shell?.resizeTerminal(columns, rows, pixelWidth, pixelHeight);
+  }
+
+  /// Writes already-encoded terminal input to the remote shell.
+  void writeShell(List<int> data) {
+    if (data.isEmpty) {
+      return;
+    }
+    _shell?.write(Uint8List.fromList(data));
+  }
+
+  void _closeShell() {
+    final shell = _shell;
+    _shell = null;
+    shell?.close();
+  }
+
   /// Runs a command on the active session and returns stdout.
   Future<String> execute(String command) async {
     final client = _client;
@@ -262,6 +337,7 @@ class SSHConnectionSession {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
 
+    _closeShell();
     final client = _client;
     _client = null;
     client?.close();
@@ -274,6 +350,7 @@ class SSHConnectionSession {
     _intentionalDisconnect = true;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
+    _closeShell();
     _client?.close();
     _client = null;
     _stateController.close();
