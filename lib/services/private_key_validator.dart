@@ -37,10 +37,12 @@ const _invalidKeyMessage =
       return (field: 'privateKey', message: _invalidKeyMessage);
     }
     final name = keys.first.name;
-    if (name != 'ssh-rsa' && name != 'ssh-ed25519') {
+    if (name != 'ssh-rsa' &&
+        name != 'ssh-ed25519' &&
+        !name.startsWith('ecdsa-')) {
       return (
         field: 'privateKey',
-        message: 'Only RSA and Ed25519 private keys are supported.',
+        message: 'Only RSA, Ed25519, and ECDSA private keys are supported.',
       );
     }
     return (field: null, message: null);

@@ -156,7 +156,16 @@ void main() {
       ServerCredentials(privateKey: encrypted, passphrase: 'wrong'),
     );
     await expectRejected(ServerCredentials(privateKey: encrypted));
-    await expectRejected(ServerCredentials(privateKey: ecdsa));
+    await expectRejected(
+      const ServerCredentials(privateKey: '-----BEGIN DSA PRIVATE KEY-----\nbad'),
+    );
+
+    // ECDSA is now supported in Phase 2
+    final savedEcdsa = await vault.saveServer(
+      config(authType: AuthType.privateKey),
+      ServerCredentials(privateKey: ecdsa),
+    );
+    expect(savedEcdsa.id, 'server-1');
   });
 
   test('known hosts replace the same host and port', () async {

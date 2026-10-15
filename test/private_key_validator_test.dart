@@ -9,17 +9,18 @@ void main() {
     return File('test/fixtures/$name').readAsStringSync();
   }
 
-  test('accepts RSA and Ed25519 keys', () async {
+  test('accepts RSA, Ed25519, and ECDSA keys', () async {
     await validatePrivateKeyMaterial(fixture('id_ed25519'), null);
     await validatePrivateKeyMaterial(fixture('id_rsa_openssh'), null);
     await validatePrivateKeyMaterial(fixture('id_rsa_pem'), null);
+    await validatePrivateKeyMaterial(fixture('id_ecdsa'), null);
     await validatePrivateKeyMaterial(
       fixture('id_ed25519_encrypted'),
       'correct-horse',
     );
   });
 
-  test('rejects empty, garbage, ECDSA, and a wrong passphrase', () async {
+  test('rejects empty, garbage, and a wrong passphrase', () async {
     expect(
       () => validatePrivateKeyMaterial('   ', null),
       throwsA(
@@ -37,16 +38,6 @@ void main() {
           (error) => error.message,
           'message',
           'This is not a valid OpenSSH or PEM private key.',
-        ),
-      ),
-    );
-    expect(
-      () => validatePrivateKeyMaterial(fixture('id_ecdsa'), null),
-      throwsA(
-        isA<PrivateKeyValidationException>().having(
-          (error) => error.message,
-          'message',
-          'Only RSA and Ed25519 private keys are supported.',
         ),
       ),
     );

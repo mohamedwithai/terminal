@@ -1,4 +1,5 @@
 import 'package:ssh_app/models/auth_type.dart';
+import 'package:ssh_app/models/host_validator.dart';
 import 'package:uuid/uuid.dart';
 
 /// Non-secret connection details for one saved server.
@@ -78,9 +79,9 @@ class ServerConfig {
     final trimmedHost = host.trim();
     if (trimmedHost.isEmpty) {
       errors['host'] = 'Enter a hostname or IP address.';
-    } else if (trimmedHost.length > 253 ||
-        RegExp(r'\s').hasMatch(trimmedHost)) {
-      errors['host'] = 'Enter a hostname or IP address without spaces.';
+    } else if (!isValidHost(trimmedHost)) {
+      errors['host'] =
+          'Enter a valid hostname, IPv4 address, or IPv6 address.';
     }
     if (port < 1 || port > 65535) {
       errors['port'] = 'Enter a port from 1 to 65535.';

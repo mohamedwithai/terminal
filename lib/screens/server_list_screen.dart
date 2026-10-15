@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ssh_app/models/server_config.dart';
 import 'package:ssh_app/providers/vault_providers.dart';
 import 'package:ssh_app/screens/server_form_screen.dart';
+import 'package:ssh_app/screens/ssh_status_screen.dart';
 
 /// Lists saved servers. Credentials stay in the vault and are not shown.
 class ServerListScreen extends ConsumerWidget {
@@ -88,22 +89,50 @@ class _ServerTile extends ConsumerWidget {
             ),
           ),
           title: Text(server.label),
-          subtitle: Text(
-            '${server.username}@${server.host}:${server.port}\n${server.authType.label}',
+          subtitle: Text('${server.username}@${server.host}:${server.port}'),
+          trailing: PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'Server options',
+            onSelected: (value) async {
+              if (value == 'edit') {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ServerFormScreen(server: server),
+                  ),
+                );
+              } else if (value == 'delete') {
+                final confirmed = await _confirmDelete(context, server.label);
+                if (confirmed && context.mounted) {
+                  await ref.read(serverListProvider.notifier).delete(server.id);
+                }
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'edit',
+                child: ListTile(
+                  leading: Icon(Icons.edit_outlined),
+                  title: Text('Edit'),
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                ),
+              ),
+              PopupMenuItem(
+                value: 'delete',
+                child: ListTile(
+                  leading: Icon(Icons.delete_outline, color: scheme.error),
+                  title: Text('Delete', style: TextStyle(color: scheme.error)),
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                ),
+              ),
+            ],
           ),
-          isThreeLine: true,
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
-              builder: (_) => ServerFormScreen(server: server),
+              builder: (_) => SSHStatusScreen(server: server),
             ),
           ),
-          onLongPress: () async {
-            final confirmed = await _confirmDelete(context, server.label);
-            if (!confirmed || !context.mounted) {
-              return;
-            }
-            await ref.read(serverListProvider.notifier).delete(server.id);
-          },
         ),
       ),
     );

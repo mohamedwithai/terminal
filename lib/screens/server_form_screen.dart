@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ssh_app/models/auth_type.dart';
+import 'package:ssh_app/models/host_validator.dart';
 import 'package:ssh_app/models/server_config.dart';
 import 'package:ssh_app/models/server_credentials.dart';
 import 'package:ssh_app/providers/vault_providers.dart';
@@ -126,7 +127,7 @@ class _ServerFormScreenState extends ConsumerState<ServerFormScreen> {
                     labelText: 'Host',
                     errorText: _errors['host'],
                   ),
-                  onChanged: (_) => _clearError('host'),
+                  onChanged: _onHostChanged,
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -208,7 +209,7 @@ class _ServerFormScreenState extends ConsumerState<ServerFormScreen> {
                     decoration: InputDecoration(
                       labelText: 'Private key',
                       alignLabelWithHint: true,
-                      helperText: 'OpenSSH or PEM. RSA and Ed25519.',
+                      helperText: 'OpenSSH or PEM. RSA, Ed25519, and ECDSA.',
                       errorText: _errors['privateKey'],
                       suffixIcon: IconButton(
                         tooltip: _hideKey ? 'Show private key' : 'Hide private key',
@@ -266,6 +267,28 @@ class _ServerFormScreenState extends ConsumerState<ServerFormScreen> {
   void _clearError(String field) {
     if (_errors.containsKey(field)) {
       setState(() => _errors.remove(field));
+    }
+  }
+
+  void _onHostChanged(String value) {
+    _clearError('host');
+    final parsed = parseHostInput(value);
+    if (parsed == null) {
+      return;
+    }
+    if (parsed.username != null && parsed.username!.isNotEmpty) {
+      _username.text = parsed.username!;
+      _clearError('username');
+    }
+    if (parsed.port != null) {
+      _port.text = '${parsed.port}';
+      _clearError('port');
+    }
+    if (parsed.host != value) {
+      _host.value = TextEditingValue(
+        text: parsed.host,
+        selection: TextSelection.collapsed(offset: parsed.host.length),
+      );
     }
   }
 
