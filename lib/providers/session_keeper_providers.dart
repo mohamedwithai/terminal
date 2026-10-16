@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:ssh_app/providers/preferences_providers.dart';
 import 'package:ssh_app/providers/ssh_providers.dart';
 import 'package:ssh_app/services/network_monitor.dart';
 import 'package:ssh_app/services/session_foreground_service.dart';
@@ -29,6 +30,7 @@ final sessionKeeperProvider = Provider<SessionKeeper>((ref) {
     connections: ref.watch(sshConnectionServiceProvider),
     foregroundService: ref.watch(sessionForegroundServiceProvider),
     networkMonitor: ref.watch(networkMonitorProvider),
+    preferences: ref.watch(preferencesStoreProvider),
   )..start();
   ref.onDispose(keeper.dispose);
   return keeper;

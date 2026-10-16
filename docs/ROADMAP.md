@@ -23,7 +23,7 @@ then work stops for a phone test. The next milestone starts on "next".
    *(done in 27e8784)*
 4. If notification permission is denied, a one-time hint after connecting:
    "Notifications are off. Your session may disconnect when you switch
-   apps." with an "Open settings" button.
+   apps." with an "Open settings" button. *(done)*
 
 ## Milestone B: stable signing key
 

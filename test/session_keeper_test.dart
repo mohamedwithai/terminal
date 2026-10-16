@@ -1,11 +1,15 @@
 import 'dart:async';
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ssh_app/app.dart';
 import 'package:ssh_app/models/auth_type.dart';
 import 'package:ssh_app/models/server_config.dart';
 import 'package:ssh_app/models/server_credentials.dart';
+import 'package:ssh_app/providers/session_keeper_providers.dart';
 import 'package:ssh_app/services/network_monitor.dart';
+import 'package:ssh_app/services/preferences_store.dart';
 import 'package:ssh_app/services/session_foreground_service.dart';
 import 'package:ssh_app/services/session_keeper.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_service.dart';
@@ -29,18 +33,24 @@ void main() {
     _FakeForegroundService foreground,
     _FakeNetwork network,
   })
-  setUpKeeper({bool online = true}) {
+  setUpKeeper({
+    bool online = true,
+    bool permissionGranted = true,
+    PreferencesStore? preferences,
+  }) {
     final connections = SSHConnectionService(
       hostKeyVerifier: noKnownHosts(),
       socketFactory: FakeSSHSocketFactory(),
       reconnectDelays: const [Duration(hours: 1)],
     );
-    final foreground = _FakeForegroundService();
+    final foreground = _FakeForegroundService()
+      ..permissionGranted = permissionGranted;
     final network = _FakeNetwork(online);
     final keeper = SessionKeeper(
       connections: connections,
       foregroundService: foreground,
       networkMonitor: network,
+      preferences: preferences ?? MemoryPreferencesStore(),
     )..start();
     addTearDown(() {
       keeper.dispose();
@@ -137,14 +147,153 @@ void main() {
     expect(second.state.status, SSHConnectionStatus.disconnected);
     expect(foreground.updates.last, isEmpty);
   });
+
+  group('notifications off', () {
+    testWidgets('denied permission gives one hint, once per install', (
+      tester,
+    ) async {
+      final preferences = MemoryPreferencesStore();
+      final (:keeper, :connections, foreground: _, network: _) = setUpKeeper(
+        online: false,
+        permissionGranted: false,
+        preferences: preferences,
+      );
+      final hints = <void>[];
+      keeper.notificationHints.listen(hints.add);
+
+      final session = connections.getOrCreateSession('session-1', server);
+      session.debugSimulateConnectionLost(
+        const ServerCredentials(password: 'secret'),
+      );
+      await tester.pump();
+      expect(hints, hasLength(1));
+      expect(
+        preferences.getBool(SessionKeeper.notificationHintShownKey),
+        isTrue,
+      );
+
+      // The next run of the app asks again but does not repeat the hint.
+      final (
+        keeper: nextRun,
+        connections: nextConnections,
+        :foreground,
+        network: _,
+      ) = setUpKeeper(
+        online: false,
+        permissionGranted: false,
+        preferences: preferences,
+      );
+      final nextHints = <void>[];
+      nextRun.notificationHints.listen(nextHints.add);
+      nextConnections
+          .getOrCreateSession('session-1', server)
+          .debugSimulateConnectionLost(
+            const ServerCredentials(password: 'secret'),
+          );
+      await tester.pump();
+      expect(foreground.permissionRequests, 1);
+      expect(nextHints, isEmpty);
+    });
+
+    testWidgets('granted permission gives no hint', (tester) async {
+      final (:keeper, :connections, foreground: _, network: _) = setUpKeeper(
+        online: false,
+      );
+      final hints = <void>[];
+      keeper.notificationHints.listen(hints.add);
+
+      connections
+          .getOrCreateSession('session-1', server)
+          .debugSimulateConnectionLost(
+            const ServerCredentials(password: 'secret'),
+          );
+      await tester.pump();
+      expect(hints, isEmpty);
+    });
+
+    testWidgets('coming back from the settings posts the notification again', (
+      tester,
+    ) async {
+      final (:connections, :foreground, keeper: _, network: _) = setUpKeeper(
+        online: false,
+        permissionGranted: false,
+      );
+      connections
+          .getOrCreateSession('session-1', server)
+          .debugSimulateConnectionLost(
+            const ServerCredentials(password: 'secret'),
+          );
+      await tester.pump();
+      final posted = foreground.updates.length;
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+
+      expect(foreground.updates, hasLength(posted + 1));
+      expect(foreground.updates.last, ['Build box']);
+    });
+
+    testWidgets('the hint shows on screen and opens the settings', (
+      tester,
+    ) async {
+      final (:keeper, :connections, :foreground, network: _) = setUpKeeper(
+        online: false,
+        permissionGranted: false,
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sessionKeeperProvider.overrideWithValue(keeper),
+            sessionForegroundServiceProvider.overrideWithValue(foreground),
+          ],
+          child: SessionKeeperScope(
+            child: MaterialApp(
+              scaffoldMessengerKey: rootScaffoldMessengerKey,
+              home: const Scaffold(body: Text('terminal')),
+            ),
+          ),
+        ),
+      );
+
+      connections
+          .getOrCreateSession('session-1', server)
+          .debugSimulateConnectionLost(
+            const ServerCredentials(password: 'secret'),
+          );
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'Notifications are off. Your session may disconnect when you '
+          'switch apps.',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Open settings'));
+      await tester.pumpAndSettle();
+      expect(foreground.settingsOpened, 1);
+    });
+  });
 }
 
 class _FakeForegroundService implements SessionForegroundService {
   final updates = <List<String>>[];
   var permissionRequests = 0;
+  var permissionGranted = true;
+  var settingsOpened = 0;
   final _disconnects = StreamController<void>.broadcast();
 
   void tapDisconnect() => _disconnects.add(null);
+
+  @override
+  Future<void> openNotificationSettings() async {
+    settingsOpened++;
+  }
 
   @override
   Future<void> update(List<String> sessionLabels) async {
@@ -154,7 +303,7 @@ class _FakeForegroundService implements SessionForegroundService {
   @override
   Future<bool> requestNotificationPermission() async {
     permissionRequests++;
-    return true;
+    return permissionGranted;
   }
 
   @override

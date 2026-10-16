@@ -17,6 +17,10 @@ abstract interface class SessionForegroundService {
   /// need. Returns whether it is granted.
   Future<bool> requestNotificationPermission();
 
+  /// Opens the system settings where the user can turn this app's
+  /// notifications back on.
+  Future<void> openNotificationSettings();
+
   /// Emits when the user taps Disconnect in the notification.
   Stream<void> get disconnectRequests;
 }
@@ -31,6 +35,9 @@ class NoopSessionForegroundService implements SessionForegroundService {
 
   @override
   Future<bool> requestNotificationPermission() async => true;
+
+  @override
+  Future<void> openNotificationSettings() async {}
 
   @override
   Stream<void> get disconnectRequests => const Stream.empty();
@@ -65,6 +72,11 @@ class AndroidSessionForegroundService implements SessionForegroundService {
   Future<bool> requestNotificationPermission() async {
     return await _channel.invokeMethod<bool>('requestNotificationPermission') ??
         false;
+  }
+
+  @override
+  Future<void> openNotificationSettings() {
+    return _channel.invokeMethod<void>('openNotificationSettings');
   }
 
   @override

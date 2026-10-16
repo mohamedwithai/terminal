@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:ssh_app/services/network_monitor.dart';
+import 'package:ssh_app/services/preferences_store.dart';
 import 'package:ssh_app/services/session_foreground_service.dart';
 import 'package:ssh_app/services/ssh/reconnect_gate.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_service.dart';
@@ -16,29 +17,40 @@ import 'package:ssh_app/services/ssh/ssh_connection_service.dart';
 /// - Runs the [SessionForegroundService] while any session is active, asks
 ///   for notification permission at the first connect, and disconnects every
 ///   session when the notification's Disconnect is tapped.
+/// - If notifications are denied, emits one [notificationHints] event, once
+///   per install, so the UI can explain and offer the settings.
 class SessionKeeper {
   SessionKeeper({
     required this.connections,
     required this.foregroundService,
     required this.networkMonitor,
+    required this.preferences,
   });
+
+  /// Set once the notifications-off hint has been shown.
+  static const notificationHintShownKey = 'notification_hint_shown';
 
   final SSHConnectionService connections;
   final SessionForegroundService foregroundService;
   final NetworkMonitor networkMonitor;
+  final PreferencesStore preferences;
 
   AppLifecycleListener? _lifecycle;
   final List<StreamSubscription<Object?>> _subscriptions = [];
+  final _notificationHints = StreamController<void>.broadcast();
   List<String> _shownLabels = const [];
   var _askedForPermission = false;
+  var _notificationsDenied = false;
+
+  /// Emits when the UI should say that notifications are off and sessions
+  /// may drop in the background.
+  Stream<void> get notificationHints => _notificationHints.stream;
 
   ReconnectGate get _gate => connections.reconnectGate;
 
   void start() {
     _gate.foreground = isForeground(SchedulerBinding.instance.lifecycleState);
-    _lifecycle = AppLifecycleListener(
-      onStateChange: (state) => _gate.foreground = isForeground(state),
-    );
+    _lifecycle = AppLifecycleListener(onStateChange: _onLifecycleChanged);
 
     unawaited(_checkNetwork());
     _subscriptions.add(
@@ -69,6 +81,18 @@ class SessionKeeper {
       AppLifecycleState.paused ||
       AppLifecycleState.detached => false,
     };
+  }
+
+  void _onLifecycleChanged(AppLifecycleState state) {
+    _gate.foreground = isForeground(state);
+    if (state == AppLifecycleState.resumed &&
+        _notificationsDenied &&
+        _shownLabels.isNotEmpty) {
+      // The user may have turned notifications on in the settings. The
+      // notification posted while they were off stays hidden, so post it
+      // again.
+      unawaited(_update(_shownLabels));
+    }
   }
 
   Future<void> _checkNetwork() async {
@@ -105,7 +129,20 @@ class SessionKeeper {
       if (granted && _shownLabels.isNotEmpty) {
         await _update(_shownLabels);
       }
+      if (!granted) {
+        _notificationsDenied = true;
+        _hintOnce();
+      }
     }
+  }
+
+  void _hintOnce() {
+    if (preferences.getBool(notificationHintShownKey) ||
+        _notificationHints.isClosed) {
+      return;
+    }
+    unawaited(preferences.setBool(notificationHintShownKey, true));
+    _notificationHints.add(null);
   }
 
   Future<void> _update(List<String> labels) async {
@@ -123,5 +160,6 @@ class SessionKeeper {
       unawaited(subscription.cancel());
     }
     _subscriptions.clear();
+    _notificationHints.close();
   }
 }
