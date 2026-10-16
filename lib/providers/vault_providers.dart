@@ -4,6 +4,8 @@ import 'package:ssh_app/models/server_config.dart';
 import 'package:ssh_app/models/server_credentials.dart';
 import 'package:ssh_app/services/flutter_secure_store.dart';
 import 'package:ssh_app/services/metadata_store.dart';
+import 'package:ssh_app/services/secure_context.dart'
+    if (dart.library.js_interop) 'package:ssh_app/services/secure_context_web.dart';
 import 'package:ssh_app/services/secure_store.dart';
 import 'package:ssh_app/services/vault_service.dart';
 
@@ -14,6 +16,13 @@ final metadataStoreProvider = Provider<MetadataStore>((ref) {
 
 final secureStoreProvider = Provider<SecureStore>((ref) {
   return FlutterSecureStore();
+});
+
+/// False on the web when the page is served over plain HTTP from a host
+/// other than localhost. Secure storage cannot encrypt there, so the UI
+/// disables saving.
+final secureStorageAvailableProvider = Provider<bool>((ref) {
+  return isSecureContext();
 });
 
 final vaultServiceProvider = Provider<VaultService>((ref) {

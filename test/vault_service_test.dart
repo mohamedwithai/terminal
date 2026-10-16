@@ -103,6 +103,26 @@ void main() {
     expect(metadata.servers, isEmpty);
   });
 
+  test('a secure-store failure becomes a VaultException and writes nothing',
+      () async {
+    final failing = VaultService(
+      secureStore: FailingSecureStore(),
+      metadataStore: metadata,
+    );
+
+    await expectLater(
+      failing.saveServer(config(), const ServerCredentials(password: 'pw')),
+      throwsA(
+        isA<VaultException>().having(
+          (error) => error.message,
+          'message',
+          startsWith('Could not save the credentials to secure storage.'),
+        ),
+      ),
+    );
+    expect(metadata.servers, isEmpty);
+  });
+
   test('OpenSSH Ed25519, OpenSSH RSA, and PEM RSA keys round-trip', () async {
     for (final fixture in ['id_ed25519', 'id_rsa_openssh', 'id_rsa_pem']) {
       final pem = File('test/fixtures/$fixture').readAsStringSync();

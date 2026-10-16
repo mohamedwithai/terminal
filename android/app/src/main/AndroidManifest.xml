@@ -1,4 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- SSH connections need network access in every build type, not only
+         in the debug and profile builds that the Flutter tool adds it to. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="SSH"
         android:name="${applicationName}"

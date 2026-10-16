@@ -12,6 +12,7 @@ class ServerListScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final servers = ref.watch(serverListProvider);
+    final secureStorageAvailable = ref.watch(secureStorageAvailableProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Servers')),
       floatingActionButton: FloatingActionButton.extended(
@@ -19,30 +20,37 @@ class ServerListScreen extends ConsumerWidget {
         icon: const Icon(Icons.add),
         label: const Text('Add server'),
       ),
-      body: servers.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => _LoadError(
-          message: error.toString(),
-          onRetry: () => ref.invalidate(serverListProvider),
-        ),
-        data: (items) {
-          if (items.isEmpty) {
-            return _EmptyState(onAdd: () => _openForm(context));
-          }
-          return RefreshIndicator(
-            onRefresh: () async => ref.invalidate(serverListProvider),
-            child: ListView.separated(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-              itemCount: items.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                final server = items[index];
-                return _ServerTile(server: server);
+      body: Column(
+        children: [
+          if (!secureStorageAvailable) const _InsecureContextBanner(),
+          Expanded(
+            child: servers.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (error, _) => _LoadError(
+                message: error.toString(),
+                onRetry: () => ref.invalidate(serverListProvider),
+              ),
+              data: (items) {
+                if (items.isEmpty) {
+                  return _EmptyState(onAdd: () => _openForm(context));
+                }
+                return RefreshIndicator(
+                  onRefresh: () async => ref.invalidate(serverListProvider),
+                  child: ListView.separated(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                    itemCount: items.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final server = items[index];
+                      return _ServerTile(server: server);
+                    },
+                  ),
+                );
               },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
@@ -133,6 +141,35 @@ class _ServerTile extends ConsumerWidget {
               builder: (_) => SSHStatusScreen(server: server),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Shown on the web over plain HTTP, where the browser hides the WebCrypto
+/// API that secure storage encrypts with.
+class _InsecureContextBanner extends StatelessWidget {
+  const _InsecureContextBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(Icons.no_encryption_outlined, color: scheme.onErrorContainer),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Secure storage needs HTTPS. Saving is disabled.',
+                style: TextStyle(color: scheme.onErrorContainer),
+              ),
+            ),
+          ],
         ),
       ),
     );

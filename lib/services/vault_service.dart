@@ -105,7 +105,15 @@ class VaultService {
       updatedAt: now,
     );
     final key = credentialStorageKey(stored.id);
-    await _secure.write(key, jsonEncode(storedCredentials.toJson()));
+    try {
+      await _secure.write(key, jsonEncode(storedCredentials.toJson()));
+    } catch (error) {
+      // Nothing has been written yet. Platform stores fail with their own
+      // types, including Errors such as the web store's UnsupportedError.
+      throw VaultException(
+        'Could not save the credentials to secure storage. $error',
+      );
+    }
     try {
       await _metadata.putServer(stored);
     } catch (error) {

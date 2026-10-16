@@ -24,6 +24,8 @@ Tests that need more setup:
   `flutter test --tags live --run-skipped test/ssh_live_integration_test.dart`
 - **Device integration test** (`integration_test/credential_vault_test.dart`). It exercises the real Keystore/Keychain, so it must run on a device or emulator: `flutter test integration_test/credential_vault_test.dart -d <device>`.
 
+CI (`.github/workflows/android-apk.yml`) runs on every push to `main` and on manual dispatch. It runs pub get, analyze, test, and `flutter build apk --debug` on Flutter 3.47.7, then uploads the APK as the `ssh-app-debug` artifact.
+
 ## Architecture
 
 The layers are `screens/` → `providers/` → `services/` → `models/`.
@@ -40,6 +42,7 @@ The layers are `screens/` → `providers/` → `services/` → `models/`.
 - Host keys use trust-on-first-use (`HostKeyVerifier`). An unknown host emits an `awaitingHostKeyConfirmation` state carrying a `HostKeyChallenge`, and the UI must call accept/reject on it. A changed fingerprint throws `SSHHostKeyChangedException` and must never be auto-accepted. Accepted keys are saved as `KnownHost` records in the metadata store.
 - `SSHSocketFactory` is the seam for injecting fake sockets in tests.
 - On the web there are no raw sockets. `ssh_connection_session.dart` conditionally imports `io_stub.dart` in place of `dart:io`, and the providers in `ssh_providers.dart` short-circuit on `kIsWeb` (the state provider emits an error, and connect does nothing). The web target exists only for UI testing.
+- The web secure store needs WebCrypto, which browsers expose only in a secure context (HTTPS or `localhost`). `secureStorageAvailableProvider` (backed by `secure_context.dart` / `secure_context_web.dart`) is false outside one. The server list then shows a banner and the form's Save button is disabled.
 
 ### Providers and UI flow
 - `ssh_providers.dart`: `sshSessionStateProvider` and `sshSessionControllerProvider` are `autoDispose.family` providers keyed by the record `({String sessionId, ServerConfig server})`. When the state provider is disposed, it closes that session. `SSHSessionController.connect()` loads credentials from the vault and then connects.

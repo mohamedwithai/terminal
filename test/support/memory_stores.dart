@@ -26,6 +26,20 @@ class MemorySecureStore implements SecureStore {
   }
 }
 
+/// [SecureStore] whose writes fail with [error], like a Keystore fault or
+/// the web store outside a secure context.
+class FailingSecureStore extends MemorySecureStore {
+  FailingSecureStore([Object? error])
+      : error = error ?? UnsupportedError('Secure storage is unavailable.');
+
+  final Object error;
+
+  @override
+  Future<void> write(String key, String value) async {
+    throw error;
+  }
+}
+
 /// In-memory [MetadataStore] for unit tests.
 class MemoryMetadataStore implements MetadataStore {
   final Map<String, String> servers = {};

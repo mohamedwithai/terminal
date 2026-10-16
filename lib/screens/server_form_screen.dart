@@ -89,12 +89,13 @@ class _ServerFormScreenState extends ConsumerState<ServerFormScreen> {
   @override
   Widget build(BuildContext context) {
     final editing = widget.server != null;
+    final canSave = ref.watch(secureStorageAvailableProvider);
     return Scaffold(
       appBar: AppBar(
         title: Text(editing ? 'Edit server' : 'Add server'),
         actions: [
           TextButton(
-            onPressed: _saving || _loadingSecrets ? null : _save,
+            onPressed: !canSave || _saving || _loadingSecrets ? null : _save,
             child: _saving
                 ? const SizedBox.square(
                     dimension: 18,
@@ -355,6 +356,12 @@ class _ServerFormScreenState extends ConsumerState<ServerFormScreen> {
     } on VaultException catch (error) {
       if (mounted) {
         _showMessage(error.message);
+      }
+    } catch (error) {
+      // Anything the vault did not translate, such as a metadata store
+      // failure. The form stays open so the user can retry.
+      if (mounted) {
+        _showMessage('Could not save the server. $error');
       }
     } finally {
       if (mounted) {
