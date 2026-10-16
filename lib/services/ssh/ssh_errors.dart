@@ -88,3 +88,20 @@ class SSHUnexpectedDisconnectException extends SSHConnectionException {
     super.cause,
   ]);
 }
+
+/// The SSH handshake failed after the TCP connection was open, for example
+/// because the server closed the connection or no algorithms matched.
+class SSHHandshakeException extends SSHConnectionException {
+  const SSHHandshakeException([
+    super.message = 'The SSH handshake failed.',
+    super.cause,
+  ]);
+}
+
+/// The saved credentials could not be read from secure storage.
+class SSHCredentialsException extends SSHConnectionException {
+  const SSHCredentialsException([
+    super.message = 'Could not read the saved credentials.',
+    super.cause,
+  ]);
+}

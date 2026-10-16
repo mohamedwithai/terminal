@@ -9,23 +9,8 @@ import 'package:ssh_app/services/ssh/host_key_verifier.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_session.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_state.dart';
 import 'package:ssh_app/services/ssh/ssh_errors.dart';
-import 'package:ssh_app/services/ssh/ssh_socket_factory.dart';
 
-class FakeSSHSocketFactory implements SSHSocketFactory {
-  FakeSSHSocketFactory({
-    this.onConnect,
-  });
-
-  Future<SSHSocket> Function(String host, int port, Duration? timeout)? onConnect;
-
-  @override
-  Future<SSHSocket> connect(String host, int port, {Duration? timeout}) {
-    if (onConnect != null) {
-      return onConnect!(host, port, timeout);
-    }
-    throw const SocketException('Connection refused', osError: OSError('Connection refused', 111));
-  }
-}
+import 'support/fake_ssh.dart';
 
 void main() {
   group('SSHConnectionSession unit tests', () {
@@ -167,6 +152,163 @@ void main() {
 
       await session.disconnect();
       expect(session.state.status, SSHConnectionStatus.disconnected);
+    });
+  });
+
+  group('SSHConnectionSession stages, timeouts and log', () {
+    final server = ServerConfig.create(
+      id: 'srv-2',
+      label: 'Stage Server',
+      host: '10.0.0.2',
+      port: 2222,
+      username: 'ada',
+      authType: AuthType.password,
+    );
+    final verifier = HostKeyVerifier(
+      findKnownHost: (_, _) => null,
+      saveKnownHost: (_) {},
+    );
+
+    test('a server that never answers the handshake times out while exchanging keys', () async {
+      final socket = SilentSSHSocket();
+      final session = SSHConnectionSession(
+        sessionId: 'stages',
+        server: server,
+        hostKeyVerifier: verifier,
+        socketFactory: FakeSSHSocketFactory(onConnect: (h, p, to) async => socket),
+        handshakeTimeout: const Duration(milliseconds: 100),
+      );
+      final states = <SSHConnectionState>[];
+      final sub = session.stateStream.listen(states.add);
+
+      await expectLater(
+        session.connect(const ServerCredentials(password: 'hunter2-secret')),
+        throwsA(isA<SSHTimeoutException>().having(
+          (e) => e.message,
+          'message',
+          contains('while exchanging keys'),
+        )),
+      );
+      await pumpEventQueue();
+
+      expect(states.map((s) => s.stage).toList(), [
+        SSHConnectionStage.loadingCredentials,
+        SSHConnectionStage.openingConnection,
+        SSHConnectionStage.exchangingKeys,
+        SSHConnectionStage.exchangingKeys,
+      ]);
+      expect(states.last.status, SSHConnectionStatus.error);
+      expect(socket.wasClosed, isTrue);
+
+      final log = session.log.format();
+      expect(log, contains('Opening TCP connection to 10.0.0.2:2222'));
+      expect(log, contains('TCP connection open'));
+      expect(log, contains('Exchanging keys'));
+      expect(log, contains('TimeoutException after'));
+      expect(log, isNot(contains('hunter2-secret')));
+      expect(
+        session.log.entries.last.toString(),
+        matches(RegExp(r'^\d\d:\d\d:\d\d\.\d{3}  ERROR ')),
+      );
+      await sub.cancel();
+      session.dispose();
+    });
+
+    test('a TCP connect that never completes times out after connectTimeout', () async {
+      final session = SSHConnectionSession(
+        sessionId: 'tcp',
+        server: server,
+        hostKeyVerifier: verifier,
+        socketFactory: FakeSSHSocketFactory(
+          onConnect: (h, p, to) => Completer<SSHSocket>().future,
+        ),
+        connectTimeout: const Duration(milliseconds: 50),
+      );
+
+      await expectLater(
+        session.connect(const ServerCredentials(password: 'p')),
+        throwsA(isA<SSHTimeoutException>().having(
+          (e) => e.message,
+          'message',
+          startsWith('Could not open a TCP connection to 10.0.0.2:2222'),
+        )),
+      );
+      expect(session.state.status, SSHConnectionStatus.error);
+      expect(session.state.stage, SSHConnectionStage.openingConnection);
+      session.dispose();
+    });
+
+    test('an OS-level connect timeout is reported as a timeout', () async {
+      final session = SSHConnectionSession(
+        sessionId: 'os-timeout',
+        server: server,
+        hostKeyVerifier: verifier,
+        socketFactory: FakeSSHSocketFactory(
+          onConnect: (h, p, to) => throw const SocketException(
+            'Connection timed out',
+            osError: OSError('Connection timed out', 110),
+          ),
+        ),
+      );
+
+      await expectLater(
+        session.connect(const ServerCredentials(password: 'p')),
+        throwsA(isA<SSHTimeoutException>()),
+      );
+      expect(session.log.format(), contains('Connection timed out'));
+      session.dispose();
+    });
+
+    test('missing, failing and hanging credentials end in an error state', () async {
+      Future<SSHConnectionState> failWith(CredentialsLoader loader) async {
+        final session = SSHConnectionSession(
+          sessionId: 'creds',
+          server: server,
+          hostKeyVerifier: verifier,
+          socketFactory: FakeSSHSocketFactory(onConnect: (h, p, to) {
+            fail('Must not open a socket without credentials.');
+          }),
+          credentialsTimeout: const Duration(milliseconds: 50),
+        );
+        await expectLater(
+          session.connectWith(loader),
+          throwsA(isA<SSHCredentialsException>()),
+        );
+        final state = session.state;
+        session.dispose();
+        return state;
+      }
+
+      final missing = await failWith(() => null);
+      expect(missing.errorMessage, contains('No saved credentials'));
+      expect(missing.stage, SSHConnectionStage.loadingCredentials);
+
+      final failing = await failWith(() => throw StateError('keystore broke'));
+      expect(failing.errorMessage, contains('keystore broke'));
+
+      final hanging = await failWith(() => Completer<ServerCredentials?>().future);
+      expect(hanging.errorMessage, contains('took longer than'));
+    });
+
+    test('disconnect() during the handshake abandons the attempt quietly', () async {
+      final socket = SilentSSHSocket();
+      final session = SSHConnectionSession(
+        sessionId: 'cancel',
+        server: server,
+        hostKeyVerifier: verifier,
+        socketFactory: FakeSSHSocketFactory(onConnect: (h, p, to) async => socket),
+      );
+      final attempt = session.connect(const ServerCredentials(password: 'p'));
+      await pumpEventQueue();
+      expect(session.state.stage, SSHConnectionStage.exchangingKeys);
+
+      await session.disconnect();
+      await expectLater(attempt, throwsA(isA<SSHConnectionException>()));
+      await pumpEventQueue();
+
+      expect(session.state.status, SSHConnectionStatus.disconnected);
+      expect(socket.wasClosed, isTrue);
+      session.dispose();
     });
   });
 }

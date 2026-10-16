@@ -20,9 +20,31 @@ class HostKeyVerifier {
   final KnownHostLookup findKnownHost;
   final KnownHostSaver saveKnownHost;
 
-  /// Formats raw SHA-256 digest bytes into standard OpenSSH fingerprint format: `SHA256:<base64-no-padding>`.
+  /// Returns the OpenSSH fingerprint `SHA256:<base64-no-padding>`, the same
+  /// text `ssh-keygen -lf` prints.
+  ///
+  /// dartssh2 4 already passes that text, UTF-8 encoded, to
+  /// `onVerifyHostKey`; it is returned unchanged. A raw SHA-256 digest is
+  /// encoded into that form.
   static String formatFingerprint(Uint8List fingerprintBytes) {
-    return 'SHA256:${base64.encode(fingerprintBytes).replaceAll('=', '')}';
+    final text = _fingerprintText(fingerprintBytes);
+    if (text != null) {
+      return text;
+    }
+    return _encodeDigest(fingerprintBytes);
+  }
+
+  static String? _fingerprintText(Uint8List bytes) {
+    try {
+      final text = utf8.decode(bytes);
+      return text.startsWith('SHA256:') ? text : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  static String _encodeDigest(Uint8List bytes) {
+    return 'SHA256:${base64.encode(bytes).replaceAll('=', '')}';
   }
 
   /// Verifies a presented host key against the known hosts store.
@@ -42,6 +64,21 @@ class HostKeyVerifier {
 
     if (existing != null) {
       if (existing.fingerprint == fingerprint) {
+        return true;
+      }
+      // Earlier builds base64-encoded dartssh2's fingerprint text a second
+      // time before saving it. That encoding is one-to-one, so a match still
+      // means the same key; store it again in the readable form.
+      if (existing.fingerprint == _encodeDigest(fingerprintBytes)) {
+        await saveKnownHost(
+          KnownHost(
+            host: existing.host,
+            port: existing.port,
+            keyType: existing.keyType,
+            fingerprint: fingerprint,
+            addedAt: existing.addedAt,
+          ),
+        );
         return true;
       }
       // CHANGED FINGERPRINT: Under TOFU, this is a hard error that must never be auto-accepted.

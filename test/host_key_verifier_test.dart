@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssh_app/models/known_host.dart';
@@ -116,6 +117,43 @@ void main() {
       expect(challenged, isTrue);
       expect(store['new-server.com:2222'], isNotNull);
       expect(store['new-server.com:2222']!.fingerprint, expectedFp);
+    });
+
+    test('keeps the SHA256 text dartssh2 passes, as ssh-keygen prints it', () {
+      const openSshText = 'SHA256:Q0ynKtbgRmoAoNdXUXjoMx9q+SQZX6WpGcyClsHHJBk';
+      final bytes = Uint8List.fromList(utf8.encode(openSshText));
+      expect(HostKeyVerifier.formatFingerprint(bytes), openSshText);
+    });
+
+    test('a key saved in the old double-encoded form still matches and is rewritten', () async {
+      const openSshText = 'SHA256:Q0ynKtbgRmoAoNdXUXjoMx9q+SQZX6WpGcyClsHHJBk';
+      final bytes = Uint8List.fromList(utf8.encode(openSshText));
+      final legacy = 'SHA256:${base64.encode(bytes).replaceAll('=', '')}';
+      final store = <String, KnownHost>{
+        'server.com:22': KnownHost(
+          host: 'server.com',
+          port: 22,
+          keyType: 'ssh-ed25519',
+          fingerprint: legacy,
+          addedAt: DateTime.utc(2026, 1, 1),
+        ),
+      };
+      final verifier = HostKeyVerifier(
+        findKnownHost: (h, p) => store['$h:$p'],
+        saveKnownHost: (kh) => store['${kh.host}:${kh.port}'] = kh,
+      );
+
+      final result = await verifier.verify(
+        host: 'server.com',
+        port: 22,
+        keyType: 'ssh-ed25519',
+        fingerprintBytes: bytes,
+        onChallenge: (_) async => fail('A saved key must not prompt again.'),
+      );
+
+      expect(result, isTrue);
+      expect(store['server.com:22']!.fingerprint, openSshText);
+      expect(store['server.com:22']!.addedAt, DateTime.utc(2026, 1, 1));
     });
 
     test('unknown host emits challenge; does not save on reject and returns false', () async {

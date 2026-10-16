@@ -3,10 +3,17 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ssh_app/models/server_config.dart';
 import 'package:ssh_app/providers/vault_providers.dart';
+import 'package:ssh_app/services/ssh/connection_log.dart';
 import 'package:ssh_app/services/ssh/host_key_verifier.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_service.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_session.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_state.dart';
+import 'package:ssh_app/services/ssh/ssh_socket_factory.dart';
+
+/// Opens TCP connections. Tests override this with fake sockets.
+final sshSocketFactoryProvider = Provider<SSHSocketFactory>((ref) {
+  return const DefaultSSHSocketFactory();
+});
 
 /// Riverpod provider for the global [SSHConnectionService].
 final sshConnectionServiceProvider = Provider<SSHConnectionService>((ref) {
@@ -17,7 +24,10 @@ final sshConnectionServiceProvider = Provider<SSHConnectionService>((ref) {
     saveKnownHost: (knownHost) => metadataStore.putKnownHost(knownHost),
   );
 
-  final service = SSHConnectionService(hostKeyVerifier: verifier);
+  final service = SSHConnectionService(
+    hostKeyVerifier: verifier,
+    socketFactory: ref.watch(sshSocketFactoryProvider),
+  );
   ref.onDispose(service.dispose);
   return service;
 });
@@ -42,6 +52,28 @@ final sshSessionStateProvider =
     });
 
     return session.stateStream;
+  },
+);
+
+/// The session's connection log, emitted in full after every new entry.
+final sshSessionLogProvider = StreamProvider.autoDispose
+    .family<List<ConnectionLogEntry>, ({String sessionId, ServerConfig server})>(
+  (ref, args) {
+    if (kIsWeb) {
+      return Stream.value(const []);
+    }
+
+    final log = ref
+        .watch(sshConnectionServiceProvider)
+        .getOrCreateSession(args.sessionId, args.server)
+        .log;
+    // Start with the entries so far, then follow changes, with no gap
+    // between the two in which an entry could be missed.
+    return Stream.multi((controller) {
+      controller.add(log.entries);
+      final sub = log.changes.listen(controller.add, onDone: controller.close);
+      controller.onCancel = sub.cancel;
+    });
   },
 );
 
@@ -70,21 +102,29 @@ class SSHSessionController {
   }
 
   /// Loads secrets from [VaultService] and connects.
+  ///
+  /// Everything is read from [ref] before the first `await`. This provider
+  /// is auto-disposed and usually only `read`, so by the time the vault
+  /// answers its [ref] has been disposed and would throw.
   Future<void> connect() async {
     if (kIsWeb) {
       return;
     }
     final vault = ref.read(vaultServiceProvider);
-    final credentials = await vault.readCredentials(server.id);
-    if (credentials == null) {
-      throw StateError('Credentials for server "${server.label}" not found in vault.');
-    }
-
     final session = ref
         .read(sshConnectionServiceProvider)
         .getOrCreateSession(sessionId, server);
 
-    await session.connect(credentials);
+    await session.connectWith(() => vault.readCredentials(server.id));
+  }
+
+  /// Opens the interactive shell, which the terminal screen then takes over.
+  Future<void> openShell() async {
+    final session = _session;
+    if (session == null) {
+      throw StateError('Session not found.');
+    }
+    await session.openShell();
   }
 
   Future<void> disconnect() async {

@@ -95,6 +95,84 @@ void main() {
     }
   });
 
+  test('host key prompt blocks sign-in until it is accepted', () async {
+    final env = _requireLive(parsed);
+    if (env == null) {
+      return;
+    }
+
+    final knownHosts = <String, KnownHost>{};
+    final session = SSHConnectionSession(
+      sessionId: 'live-session-host-key-wait',
+      server: _server(env),
+      hostKeyVerifier: _verifier(knownHosts),
+      connectTimeout: const Duration(seconds: 5),
+    );
+    String? fingerprint;
+    String? logWhileWaiting;
+    final sub = session.stateStream.listen((state) async {
+      final challenge = state.challenge;
+      if (challenge == null) {
+        return;
+      }
+      fingerprint = challenge.fingerprint;
+      await Future<void>.delayed(const Duration(seconds: 2));
+      logWhileWaiting = session.log.format();
+      challenge.accept();
+    });
+
+    try {
+      await session.connect(_credentials(env));
+      expect(session.isConnected, isTrue);
+      // The same text `ssh-keygen -lf` prints for the host key.
+      expect(fingerprint, matches(RegExp(r'^SHA256:[A-Za-z0-9+/]{43}$')));
+      expect(knownHosts.values.single.fingerprint, fingerprint);
+
+      // While the prompt was open, dartssh2 had not started sign-in.
+      expect(logWhileWaiting, isNotNull);
+      expect(logWhileWaiting, isNot(contains('SSHClient._onTransportReady')));
+      expect(logWhileWaiting, isNot(contains('Authenticating')));
+      final messages = session.log.entries.map((e) => e.message).toList();
+      expect(
+        messages.indexOf('Host key accepted'),
+        lessThan(messages.indexOf('ssh: SSHClient._onTransportReady')),
+      );
+    } finally {
+      await sub.cancel();
+      await session.disconnect();
+    }
+  });
+
+  test('an unanswered host key prompt times out and saves nothing', () async {
+    final env = _requireLive(parsed);
+    if (env == null) {
+      return;
+    }
+
+    final knownHosts = <String, KnownHost>{};
+    final session = SSHConnectionSession(
+      sessionId: 'live-session-host-key-timeout',
+      server: _server(env),
+      hostKeyVerifier: _verifier(knownHosts),
+      connectTimeout: const Duration(seconds: 5),
+      handshakeTimeout: const Duration(seconds: 3),
+    );
+
+    try {
+      await expectLater(
+        session.connect(_credentials(env)),
+        throwsA(isA<SSHTimeoutException>().having(
+          (e) => e.message,
+          'message',
+          contains('waiting for the host key to be accepted'),
+        )),
+      );
+      expect(knownHosts, isEmpty);
+    } finally {
+      await session.disconnect();
+    }
+  });
+
   test('changed host key path throws SSHHostKeyChangedException', () async {
     final env = _requireLive(parsed);
     if (env == null) {

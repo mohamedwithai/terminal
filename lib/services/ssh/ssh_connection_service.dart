@@ -11,6 +11,9 @@ class SSHConnectionService {
     required this.hostKeyVerifier,
     this.socketFactory = const DefaultSSHSocketFactory(),
     this.connectTimeout = const Duration(seconds: 10),
+    this.handshakeTimeout = const Duration(seconds: 30),
+    this.credentialsTimeout = const Duration(seconds: 10),
+    this.shellTimeout = const Duration(seconds: 15),
     this.keepAliveInterval = const Duration(seconds: 15),
     this.reconnectDelays = const [
       Duration(seconds: 2),
@@ -22,6 +25,9 @@ class SSHConnectionService {
   final HostKeyVerifier hostKeyVerifier;
   final SSHSocketFactory socketFactory;
   final Duration connectTimeout;
+  final Duration handshakeTimeout;
+  final Duration credentialsTimeout;
+  final Duration shellTimeout;
   final Duration keepAliveInterval;
   final List<Duration> reconnectDelays;
 
@@ -41,6 +47,9 @@ class SSHConnectionService {
         hostKeyVerifier: hostKeyVerifier,
         socketFactory: socketFactory,
         connectTimeout: connectTimeout,
+        handshakeTimeout: handshakeTimeout,
+        credentialsTimeout: credentialsTimeout,
+        shellTimeout: shellTimeout,
         keepAliveInterval: keepAliveInterval,
         reconnectDelays: reconnectDelays,
       );

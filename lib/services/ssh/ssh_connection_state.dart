@@ -10,6 +10,21 @@ enum SSHConnectionStatus {
   error,
 }
 
+/// The step a connection attempt is on, in the order they happen.
+enum SSHConnectionStage {
+  loadingCredentials('Loading credentials'),
+  openingConnection('Opening connection'),
+  exchangingKeys('Exchanging keys'),
+  verifyingHostKey('Verifying host key'),
+  authenticating('Authenticating'),
+  openingShell('Opening shell');
+
+  const SSHConnectionStage(this.label);
+
+  /// Shown on the status screen and in the connection log.
+  final String label;
+}
+
 /// Information presented to the user when a previously unknown host key is encountered.
 class HostKeyChallenge {
   HostKeyChallenge({
@@ -51,6 +66,7 @@ class SSHConnectionState {
     this.maxReconnectAttempts = 3,
     this.error,
     this.errorMessage,
+    this.stage,
   });
 
   const SSHConnectionState.disconnected()
@@ -59,10 +75,12 @@ class SSHConnectionState {
         reconnectAttempt = 0,
         maxReconnectAttempts = 3,
         error = null,
-        errorMessage = null;
+        errorMessage = null,
+        stage = null;
 
-  const SSHConnectionState.connecting()
-      : status = SSHConnectionStatus.connecting,
+  const SSHConnectionState.connecting([
+    this.stage = SSHConnectionStage.openingConnection,
+  ])  : status = SSHConnectionStatus.connecting,
         challenge = null,
         reconnectAttempt = 0,
         maxReconnectAttempts = 3,
@@ -75,7 +93,8 @@ class SSHConnectionState {
         reconnectAttempt = 0,
         maxReconnectAttempts = 3,
         error = null,
-        errorMessage = null;
+        errorMessage = null,
+        stage = SSHConnectionStage.verifyingHostKey;
 
   const SSHConnectionState.connected()
       : status = SSHConnectionStatus.connected,
@@ -83,19 +102,23 @@ class SSHConnectionState {
         reconnectAttempt = 0,
         maxReconnectAttempts = 3,
         error = null,
-        errorMessage = null;
+        errorMessage = null,
+        stage = null;
 
   const SSHConnectionState.reconnecting({
     required this.reconnectAttempt,
     this.maxReconnectAttempts = 3,
+    this.stage,
   })  : status = SSHConnectionStatus.reconnecting,
         challenge = null,
         error = null,
         errorMessage = null;
 
+  /// [stage] is the step that failed, when the failure happened mid-attempt.
   const SSHConnectionState.error(
     String message, [
     this.error,
+    this.stage,
   ])  : status = SSHConnectionStatus.error,
         challenge = null,
         reconnectAttempt = 0,
@@ -109,6 +132,9 @@ class SSHConnectionState {
   final SSHConnectionException? error;
   final String? errorMessage;
 
+  /// The current step while connecting, or the failed step on [error].
+  final SSHConnectionStage? stage;
+
   bool get isConnected => status == SSHConnectionStatus.connected;
   bool get isConnecting =>
       status == SSHConnectionStatus.connecting ||
@@ -120,12 +146,12 @@ class SSHConnectionState {
   String toString() {
     return switch (status) {
       SSHConnectionStatus.disconnected => 'disconnected',
-      SSHConnectionStatus.connecting => 'connecting',
+      SSHConnectionStatus.connecting => 'connecting(${stage?.label})',
       SSHConnectionStatus.awaitingHostKeyConfirmation =>
         'awaitingHostKeyConfirmation(${challenge?.fingerprint})',
       SSHConnectionStatus.connected => 'connected',
       SSHConnectionStatus.reconnecting =>
-        'reconnecting($reconnectAttempt/$maxReconnectAttempts)',
+        'reconnecting($reconnectAttempt/$maxReconnectAttempts, ${stage?.label})',
       SSHConnectionStatus.error => 'error($errorMessage)',
     };
   }
