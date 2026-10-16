@@ -36,6 +36,7 @@ void main() {
     TerminalKey? key;
     String? text;
     var ctrl = ModifierLatch.off;
+    var pastes = 0;
 
     await tester.pumpWidget(
       MaterialApp(
@@ -47,6 +48,7 @@ void main() {
             onToggleAlt: () {},
             onKey: (value) => key = value,
             onText: (value) => text = value,
+            onPaste: () => pastes++,
           ),
         ),
       ),
@@ -55,10 +57,12 @@ void main() {
     await tester.tap(find.text('ESC'));
     await tester.tap(find.text('|'));
     await tester.tap(find.text('CTRL'));
+    await tester.tap(find.byTooltip('Paste'));
 
     expect(key, TerminalKey.escape);
     expect(text, '|');
     expect(ctrl, ModifierLatch.once);
+    expect(pastes, 1);
   });
 
   testWidgets('locked modifier shows a lock icon', (tester) async {
@@ -72,6 +76,7 @@ void main() {
             onToggleAlt: _noop,
             onKey: _noopKey,
             onText: _noopText,
+            onPaste: _noop,
           ),
         ),
       ),

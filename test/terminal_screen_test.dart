@@ -85,6 +85,132 @@ void main() {
     expect(find.byType(TerminalScreen), findsNothing);
   });
 
+  testWidgets('the power button asks before disconnecting', (tester) async {
+    final disconnects = <int>[0];
+    await tester.pumpWidget(
+      _terminalApp(server, disconnects: disconnects, pushed: true),
+    );
+    await tester.tap(find.text('Open terminal'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Disconnect'));
+    await tester.pumpAndSettle();
+    expect(find.text('Disconnect?'), findsOneWidget);
+
+    await tester.tap(find.text('Stay'));
+    await tester.pumpAndSettle();
+    expect(disconnects.single, 0);
+    expect(find.byType(TerminalScreen), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Disconnect'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Disconnect'));
+    await tester.pumpAndSettle();
+    expect(disconnects.single, 1);
+    expect(find.byType(TerminalScreen), findsNothing);
+  });
+
+  group('paste', () {
+    testWidgets('one line from the keyboard bar is pasted at once', (
+      tester,
+    ) async {
+      _FakeClipboard(tester).text = 'ls -la';
+      final session = RecordingSession(server);
+      await tester.pumpWidget(_terminalApp(server, session: session));
+      await tester.pump();
+      session.writes.clear();
+
+      await tester.tap(find.byTooltip('Paste'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(session.written, 'ls -la');
+    });
+
+    testWidgets('several lines are shown and pasted only when confirmed', (
+      tester,
+    ) async {
+      final clipboard = _FakeClipboard(tester)
+        ..text = 'echo one\r\nrm -rf build\x1b[2J\n';
+      final session = RecordingSession(server);
+      await tester.pumpWidget(_terminalApp(server, session: session));
+      await tester.pump();
+      session.writes.clear();
+
+      await tester.tap(find.byTooltip('Paste'));
+      await tester.pumpAndSettle();
+      expect(find.text('Paste 2 lines?'), findsOneWidget);
+      expect(find.textContaining('may run these lines'), findsOneWidget);
+      // The escape sequence is shown, not hidden.
+      expect(
+        tester.widget<Text>(find.byKey(const ValueKey('paste-preview'))).data,
+        'echo one\nrm -rf build␛[2J',
+      );
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(session.writes, isEmpty);
+
+      clipboard.text = 'echo one\necho two';
+      await tester.tap(find.byTooltip('Paste'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Paste'));
+      await tester.pumpAndSettle();
+      expect(session.written, 'echo one\recho two');
+    });
+
+    testWidgets('bracketed paste is used when the program turns it on', (
+      tester,
+    ) async {
+      final clipboard = _FakeClipboard(tester)..text = 'vim\x1b[201~:q!';
+      final session = RecordingSession(server);
+      await tester.pumpWidget(_terminalApp(server, session: session));
+      await tester.pump();
+      _terminal(tester).write('\x1b[?2004h');
+      session.writes.clear();
+
+      await tester.tap(find.byTooltip('Paste'));
+      await tester.pumpAndSettle();
+      // The end marker inside the text cannot close the bracket early.
+      expect(session.written, '\x1b[200~vim:q!\x1b[201~');
+
+      clipboard.text = 'line one\nline two';
+      session.writes.clear();
+      await tester.tap(find.byTooltip('Paste'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('bracketed paste'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Paste'));
+      await tester.pumpAndSettle();
+      expect(session.written, '\x1b[200~line one\rline two\x1b[201~');
+
+      // Once the program turns it off, paste is plain again.
+      _terminal(tester).write('\x1b[?2004l');
+      clipboard.text = 'pwd';
+      session.writes.clear();
+      await tester.tap(find.byTooltip('Paste'));
+      await tester.pumpAndSettle();
+      expect(session.written, 'pwd');
+    });
+
+    testWidgets('a pasted command keeps an armed CTRL for the next key', (
+      tester,
+    ) async {
+      _FakeClipboard(tester).text = 'cat';
+      final session = RecordingSession(server);
+      await tester.pumpWidget(_terminalApp(server, session: session));
+      await tester.pump();
+      await tester.tap(find.text('CTRL'));
+      await tester.pump();
+      session.writes.clear();
+
+      await tester.tap(find.byTooltip('Paste'));
+      await tester.pumpAndSettle();
+
+      expect(session.written, 'cat');
+      expect(find.byTooltip('CTRL, next key'), findsOneWidget);
+    });
+  });
+
   group('modifiers and the soft keyboard', () {
     testWidgets('CTRL applies to a letter typed on the soft keyboard', (
       tester,
@@ -509,7 +635,10 @@ void main() {
       session.writes.clear();
 
       await tester.tap(find.text('Paste'));
-      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(find.text('Paste 2 lines?'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Paste'));
+      await tester.pumpAndSettle();
 
       expect(session.written, 'echo hi\rls');
       expect(clipboard.text, 'echo hi\nls');

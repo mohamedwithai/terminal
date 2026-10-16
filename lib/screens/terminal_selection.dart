@@ -75,8 +75,8 @@ class TerminalSelectionOverlay extends StatefulWidget {
   /// Key of the [TerminalView] in [child].
   final GlobalKey<TerminalViewState> terminalViewKey;
 
-  /// Sends text from the clipboard to the terminal.
-  final void Function(String text) onPaste;
+  /// Pastes the clipboard into the terminal.
+  final Future<void> Function() onPaste;
 
   /// The [TerminalView] the selection belongs to.
   final Widget child;
@@ -417,12 +417,7 @@ class _TerminalSelectionOverlayState extends State<TerminalSelectionOverlay> {
   Future<void> _paste() async {
     widget.controller.clearSelection();
     _closeMenu();
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    final text = data?.text;
-    if (!mounted || text == null || text.isEmpty) {
-      return;
-    }
-    widget.onPaste(text);
+    await widget.onPaste();
   }
 
   @override

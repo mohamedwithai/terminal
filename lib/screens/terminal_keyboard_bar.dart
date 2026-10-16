@@ -43,10 +43,14 @@ class TerminalKeyboardBar extends StatelessWidget {
     required this.alt,
     required this.onToggleCtrl,
     required this.onToggleAlt,
+    required this.onPaste,
   });
 
   final void Function(TerminalKey key) onKey;
   final void Function(String text) onText;
+
+  /// Pastes the clipboard into the terminal.
+  final VoidCallback onPaste;
   final ModifierLatch ctrl;
   final ModifierLatch alt;
   final VoidCallback onToggleCtrl;
@@ -72,6 +76,11 @@ class TerminalKeyboardBar extends StatelessWidget {
                 onPressed: () => onKey(TerminalKey.escape),
               ),
               _KeyButton(label: 'TAB', onPressed: () => onKey(TerminalKey.tab)),
+              _KeyButton(
+                icon: Icons.content_paste,
+                tooltip: 'Paste',
+                onPressed: onPaste,
+              ),
               _KeyButton(label: '|', onPressed: () => onText('|')),
               _KeyButton(label: '~', onPressed: () => onText('~')),
               _KeyButton(label: '/', onPressed: () => onText('/')),
@@ -148,15 +157,21 @@ class _ModifierKey extends StatelessWidget {
 }
 
 class _KeyButton extends StatelessWidget {
-  const _KeyButton({this.label, this.icon, required this.onPressed});
+  const _KeyButton({
+    this.label,
+    this.icon,
+    this.tooltip,
+    required this.onPressed,
+  });
 
   final String? label;
   final IconData? icon;
+  final String? tooltip;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    final button = Padding(
       padding: const EdgeInsets.only(right: 6),
       child: OutlinedButton(
         style: OutlinedButton.styleFrom(
@@ -168,5 +183,6 @@ class _KeyButton extends StatelessWidget {
         child: icon == null ? Text(label!) : Icon(icon, size: 18),
       ),
     );
+    return tooltip == null ? button : Tooltip(message: tooltip, child: button);
   }
 }

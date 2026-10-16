@@ -10,6 +10,7 @@ import 'package:ssh_app/providers/ssh_providers.dart';
 import 'package:ssh_app/screens/pty_resize.dart';
 import 'package:ssh_app/screens/terminal_input.dart';
 import 'package:ssh_app/screens/terminal_keyboard_bar.dart';
+import 'package:ssh_app/screens/terminal_paste.dart';
 import 'package:ssh_app/screens/terminal_selection.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_session.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_state.dart';
@@ -243,9 +244,28 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     _focusNode.requestFocus();
   }
 
-  void _paste(String text) {
-    // Terminals send Enter as CR, so pasted line breaks become CRs too.
-    _terminal.paste(text.replaceAll('\r\n', '\r').replaceAll('\n', '\r'));
+  /// Pastes the clipboard, from the keyboard bar or the selection toolbar.
+  ///
+  /// Text with a line break is shown first and only pasted once confirmed,
+  /// since each line break can run a command. [Terminal.paste] wraps the text
+  /// in bracketed paste markers when the program turned that mode on.
+  Future<void> _pasteClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text;
+    if (!mounted || text == null || text.isEmpty) {
+      return;
+    }
+    if (pasteNeedsConfirmation(text)) {
+      final confirmed = await confirmPaste(
+        context,
+        text,
+        bracketed: _terminal.bracketedPasteMode,
+      );
+      if (!mounted || !confirmed) {
+        return;
+      }
+    }
+    _terminal.paste(preparePaste(text));
     if (_scrollController.hasClients) {
       final position = _scrollController.position;
       position.jumpTo(position.maxScrollExtent);
@@ -358,14 +378,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
           actions: [
             IconButton(
               tooltip: 'Disconnect',
-              onPressed: () async {
-                await ref
-                    .read(sshSessionControllerProvider(_args))
-                    .disconnect();
-                if (context.mounted) {
-                  Navigator.of(context).pop();
-                }
-              },
+              onPressed: () => unawaited(_confirmLeave()),
               icon: const Icon(Icons.power_settings_new),
             ),
           ],
@@ -400,7 +413,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                   controller: _terminalController,
                   scrollController: _scrollController,
                   terminalViewKey: _terminalViewKey,
-                  onPaste: _paste,
+                  onPaste: _pasteClipboard,
                   // TerminalView pads itself by MediaQuery.padding; the
                   // keyboard bar below already keeps clear of the system
                   // navigation bar, so the terminal can use every row.
@@ -430,6 +443,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
               onToggleAlt: _modifiers.toggleAlt,
               onKey: _sendKey,
               onText: _sendText,
+              onPaste: () => unawaited(_pasteClipboard()),
             ),
           ],
         ),
