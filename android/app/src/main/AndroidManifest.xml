@@ -2,6 +2,16 @@
     <!-- SSH connections need network access in every build type, not only
          in the debug and profile builds that the Flutter tool adds it to. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- SessionForegroundService keeps SSH sessions connected while the
+         user is in another app; without it Android cuts the app's network
+         and the connection drops. specialUse is the type that fits an
+         interactive terminal session (dataSync is capped at 6 hours a day
+         on Android 15). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <!-- Its notification, on Android 13 and later. Requested at the first
+         connect. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="SSH"
         android:name="${applicationName}"
@@ -29,6 +39,15 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <service
+            android:name=".SessionForegroundService"
+            android:exported="false"
+            android:stopWithTask="true"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the user's open SSH terminal sessions connected while the app is in the background, until the user disconnects them."/>
+        </service>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A ">_" prompt, for the session notification. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M3.5,6 L5,4.5 L12,11.5 L5,18.5 L3.5,17 L9,11.5 Z M12,17 L20.5,17 L20.5,19 L12,19 Z" />
+</vector>

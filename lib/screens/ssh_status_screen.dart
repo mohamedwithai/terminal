@@ -282,7 +282,9 @@ class _SSHStatusScreenState extends ConsumerState<SSHStatusScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      'Connection dropped unexpectedly. Reconnecting (attempt ${state.reconnectAttempt} of ${state.maxReconnectAttempts})...',
+                      state.waitingFor != null
+                          ? 'Connection dropped. Waiting for ${state.waitingFor} to reconnect.'
+                          : 'Connection dropped unexpectedly. Reconnecting (attempt ${state.reconnectAttempt} of ${state.maxReconnectAttempts})...',
                       style: const TextStyle(fontWeight: FontWeight.w500),
                     ),
                   ),

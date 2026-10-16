@@ -67,6 +67,7 @@ class SSHConnectionState {
     this.error,
     this.errorMessage,
     this.stage,
+    this.waitingFor,
   });
 
   const SSHConnectionState.disconnected()
@@ -76,7 +77,8 @@ class SSHConnectionState {
         maxReconnectAttempts = 3,
         error = null,
         errorMessage = null,
-        stage = null;
+        stage = null,
+        waitingFor = null;
 
   const SSHConnectionState.connecting([
     this.stage = SSHConnectionStage.openingConnection,
@@ -85,7 +87,8 @@ class SSHConnectionState {
         reconnectAttempt = 0,
         maxReconnectAttempts = 3,
         error = null,
-        errorMessage = null;
+        errorMessage = null,
+        waitingFor = null;
 
   const SSHConnectionState.awaitingHostKeyConfirmation(
     HostKeyChallenge this.challenge,
@@ -94,7 +97,8 @@ class SSHConnectionState {
         maxReconnectAttempts = 3,
         error = null,
         errorMessage = null,
-        stage = SSHConnectionStage.verifyingHostKey;
+        stage = SSHConnectionStage.verifyingHostKey,
+        waitingFor = null;
 
   const SSHConnectionState.connected()
       : status = SSHConnectionStatus.connected,
@@ -103,12 +107,15 @@ class SSHConnectionState {
         maxReconnectAttempts = 3,
         error = null,
         errorMessage = null,
-        stage = null;
+        stage = null,
+        waitingFor = null;
 
+  /// [reconnectAttempt] is 0 while the reconnect waits for [waitingFor].
   const SSHConnectionState.reconnecting({
     required this.reconnectAttempt,
     this.maxReconnectAttempts = 3,
     this.stage,
+    this.waitingFor,
   })  : status = SSHConnectionStatus.reconnecting,
         challenge = null,
         error = null,
@@ -123,7 +130,8 @@ class SSHConnectionState {
         challenge = null,
         reconnectAttempt = 0,
         maxReconnectAttempts = 3,
-        errorMessage = message;
+        errorMessage = message,
+        waitingFor = null;
 
   final SSHConnectionStatus status;
   final HostKeyChallenge? challenge;
@@ -134,6 +142,10 @@ class SSHConnectionState {
 
   /// The current step while connecting, or the failed step on [error].
   final SSHConnectionStage? stage;
+
+  /// While reconnecting: what the reconnect waits for before its next
+  /// attempt, such as a network connection. Null while it is trying.
+  final String? waitingFor;
 
   bool get isConnected => status == SSHConnectionStatus.connected;
   bool get isConnecting =>
@@ -150,6 +162,8 @@ class SSHConnectionState {
       SSHConnectionStatus.awaitingHostKeyConfirmation =>
         'awaitingHostKeyConfirmation(${challenge?.fingerprint})',
       SSHConnectionStatus.connected => 'connected',
+      SSHConnectionStatus.reconnecting when waitingFor != null =>
+        'reconnecting(waiting for $waitingFor)',
       SSHConnectionStatus.reconnecting =>
         'reconnecting($reconnectAttempt/$maxReconnectAttempts, ${stage?.label})',
       SSHConnectionStatus.error => 'error($errorMessage)',

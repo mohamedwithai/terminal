@@ -37,6 +37,8 @@ dependencies:
 
   # Pinned to the current stable releases on pub.dev (checked 2026-10-15).
   # xterm renders the interactive shell started in Phase 3.
+  # connectivity_plus (checked 2026-10-16) holds reconnects while offline.
+  connectivity_plus: 7.3.2
   flutter_riverpod: 3.4.3
   flutter_secure_storage: 11.2.0
   uuid: 4.6.0

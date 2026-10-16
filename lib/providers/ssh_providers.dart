@@ -5,6 +5,7 @@ import 'package:ssh_app/models/server_config.dart';
 import 'package:ssh_app/providers/vault_providers.dart';
 import 'package:ssh_app/services/ssh/connection_log.dart';
 import 'package:ssh_app/services/ssh/host_key_verifier.dart';
+import 'package:ssh_app/services/ssh/reconnect_gate.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_service.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_session.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_state.dart';
@@ -13,6 +14,15 @@ import 'package:ssh_app/services/ssh/ssh_socket_factory.dart';
 /// Opens TCP connections. Tests override this with fake sockets.
 final sshSocketFactoryProvider = Provider<SSHSocketFactory>((ref) {
   return const DefaultSSHSocketFactory();
+});
+
+/// Whether lost sessions may try to reconnect. `sessionKeeperProvider` keeps
+/// it up to date with the app's lifecycle and the network; until then it is
+/// open.
+final reconnectGateProvider = Provider<ReconnectGate>((ref) {
+  final gate = ReconnectGate();
+  ref.onDispose(gate.dispose);
+  return gate;
 });
 
 /// Riverpod provider for the global [SSHConnectionService].
@@ -27,6 +37,7 @@ final sshConnectionServiceProvider = Provider<SSHConnectionService>((ref) {
   final service = SSHConnectionService(
     hostKeyVerifier: verifier,
     socketFactory: ref.watch(sshSocketFactoryProvider),
+    reconnectGate: ref.watch(reconnectGateProvider),
   );
   ref.onDispose(service.dispose);
   return service;

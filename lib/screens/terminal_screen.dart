@@ -7,9 +7,23 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ssh_app/models/server_config.dart';
 import 'package:ssh_app/providers/ssh_providers.dart';
+import 'package:ssh_app/screens/pty_resize.dart';
+import 'package:ssh_app/screens/terminal_input.dart';
 import 'package:ssh_app/screens/terminal_keyboard_bar.dart';
+import 'package:ssh_app/screens/terminal_selection.dart';
+import 'package:ssh_app/services/ssh/ssh_connection_session.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_state.dart';
 import 'package:xterm/xterm.dart';
+
+/// Written before the first output of the shell that replaces a lost one.
+const reconnectedBanner = '--- reconnected, new shell ---';
+
+/// Turns off what the lost shell's program may have switched on: the
+/// alternate screen, a hidden cursor, mouse reporting, bracketed paste,
+/// application cursor and keypad keys, and colors.
+const _resetModes =
+    '\x1b[?1049l\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l'
+    '\x1b[?2004l\x1b[?1l\x1b>\x1b[0m';
 
 /// Full-screen terminal bound to an already opened SSH session.
 class TerminalScreen extends ConsumerStatefulWidget {
@@ -27,7 +41,15 @@ class TerminalScreen extends ConsumerStatefulWidget {
 }
 
 class _TerminalScreenState extends ConsumerState<TerminalScreen> {
-  final Terminal _terminal = Terminal(maxLines: 10000);
+  final _modifiers = TerminalModifiers();
+  late final ModifierTerminal _terminal = ModifierTerminal(
+    modifiers: _modifiers,
+    maxLines: 10000,
+  );
+  final _terminalController = TerminalController();
+  final _scrollController = ScrollController();
+  final _terminalViewKey = GlobalKey<TerminalViewState>();
+  late final _ptySize = PtyResizeDebouncer(send: _sendPtySize);
   final FocusNode _focusNode = FocusNode();
 
   SSHSession? _shell;
@@ -36,50 +58,94 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   var _pinchBase = 14.0;
   var _pinchStart = 0.0;
   final Map<int, Offset> _pointers = {};
-  var _ctrl = ModifierLatch.off;
-  var _alt = ModifierLatch.off;
   var _opening = false;
   var _confirmingLeave = false;
 
+  /// The connection dropped; the next shell is announced as a new one.
+  var _connectionLost = false;
+
+  /// The shell ended on its own (the user typed `exit`), so no new one is
+  /// opened.
+  var _shellExited = false;
+
   ({String sessionId, ServerConfig server}) get _args =>
       (sessionId: widget.sessionId, server: widget.server);
+
+  SSHConnectionSession? get _session =>
+      ref.read(sshConnectionServiceProvider).getSession(widget.sessionId);
 
   @override
   void initState() {
     super.initState();
     _terminal.onOutput = _sendToShell;
-    _terminal.onResize = _resizeShell;
+    _terminal.onResize = _onTerminalResize;
+    _modifiers.addListener(_onModifiersChanged);
   }
 
   @override
   void dispose() {
+    _ptySize.dispose();
+    _modifiers.removeListener(_onModifiersChanged);
+    _modifiers.dispose();
     _outputSub?.cancel();
     _shell?.close();
+    _terminalController.dispose();
+    _scrollController.dispose();
     _focusNode.dispose();
     super.dispose();
   }
 
-  void _sendToShell(String data) {
-    ref
-        .read(sshConnectionServiceProvider)
-        .getSession(widget.sessionId)
-        ?.writeShell(utf8.encode(data));
+  void _onModifiersChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
-  void _resizeShell(int columns, int rows, int pixelWidth, int pixelHeight) {
-    ref
-        .read(sshConnectionServiceProvider)
-        .getSession(widget.sessionId)
-        ?.resizeShell(columns, rows, pixelWidth, pixelHeight);
+  void _sendToShell(String data) {
+    _session?.writeShell(utf8.encode(data));
+  }
+
+  /// Called by xterm during layout whenever the view's size in cells changes:
+  /// the soft keyboard showing or hiding, rotation, or a pinch-zoom.
+  void _onTerminalResize(int columns, int rows, int cellWidth, int cellHeight) {
+    // xterm reports the size of one cell; the PTY wants the whole window's.
+    _ptySize.resize((
+      columns: columns,
+      rows: rows,
+      pixelWidth: columns * cellWidth,
+      pixelHeight: rows * cellHeight,
+    ));
+  }
+
+  void _sendPtySize(PtySize size) {
+    _session?.resizeShell(
+      size.columns,
+      size.rows,
+      size.pixelWidth,
+      size.pixelHeight,
+    );
+  }
+
+  void _onConnectionState(SSHConnectionState? state) {
+    switch (state?.status) {
+      case SSHConnectionStatus.connected:
+        _ensureShell();
+      case SSHConnectionStatus.reconnecting when !_connectionLost:
+        _connectionLost = true;
+        // The old shell went with the connection.
+        _outputSub?.cancel();
+        _outputSub = null;
+        _shell = null;
+      default:
+        break;
+    }
   }
 
   Future<void> _ensureShell() async {
-    if (_opening || _shell != null) {
+    if (_opening || _shell != null || _shellExited) {
       return;
     }
-    final session = ref
-        .read(sshConnectionServiceProvider)
-        .getSession(widget.sessionId);
+    final session = _session;
     if (session == null || !session.isConnected) {
       return;
     }
@@ -94,19 +160,17 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
       }
       await _outputSub?.cancel();
       _shell = shell;
+      // The view may have changed size while the shell was opening.
+      _ptySize.opened(columns, rows);
+      if (_connectionLost) {
+        _connectionLost = false;
+        _terminal.write('$_resetModes\r\n$reconnectedBanner\r\n');
+      }
       _outputSub = shell.stdout
           .map<List<int>>((chunk) => chunk)
           .transform(const Utf8Decoder(allowMalformed: true))
           .listen(_terminal.write);
-      unawaited(
-        shell.done.then((_) {
-          if (!mounted || !identical(_shell, shell)) {
-            return;
-          }
-          _shell = null;
-          _terminal.write('\r\n[session closed]\r\n');
-        }),
-      );
+      unawaited(shell.done.then((_) => _onShellDone(shell)));
     } catch (error) {
       if (mounted) {
         _terminal.write('\r\nCould not open a shell: $error\r\n');
@@ -114,6 +178,20 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     } finally {
       _opening = false;
     }
+  }
+
+  void _onShellDone(SSHSession shell) {
+    if (!mounted || !identical(_shell, shell)) {
+      return;
+    }
+    _shell = null;
+    final client = _session?.client;
+    if (client == null || client.isClosed) {
+      // The connection dropped; a reconnect brings a new shell.
+      return;
+    }
+    _shellExited = true;
+    _terminal.write('\r\n[session closed]\r\n');
   }
 
   void _trackPointer(PointerEvent event) {
@@ -155,70 +233,48 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     });
   }
 
-  void _toggleCtrl() {
-    setState(() => _ctrl = advanceModifierLatch(_ctrl));
-  }
-
-  void _toggleAlt() {
-    setState(() => _alt = advanceModifierLatch(_alt));
-  }
-
-  void _releaseOneShot() {
-    final ctrl = releaseOneShotModifier(_ctrl);
-    final alt = releaseOneShotModifier(_alt);
-    if (ctrl == _ctrl && alt == _alt) {
-      return;
-    }
-    setState(() {
-      _ctrl = ctrl;
-      _alt = alt;
-    });
-  }
-
   void _sendKey(TerminalKey key) {
-    _terminal.keyInput(key, ctrl: _ctrl.isActive, alt: _alt.isActive);
-    _releaseOneShot();
+    _terminal.keyInput(key);
     _focusNode.requestFocus();
   }
 
   void _sendText(String text) {
-    if (_ctrl.isActive || _alt.isActive) {
-      for (final code in text.codeUnits) {
-        final handled = _terminal.charInput(
-          code,
-          ctrl: _ctrl.isActive,
-          alt: _alt.isActive,
-        );
-        if (!handled) {
-          _terminal.textInput(text);
-          break;
-        }
-      }
-    } else {
-      _terminal.textInput(text);
-    }
-    _releaseOneShot();
+    _terminal.textInput(text);
     _focusNode.requestFocus();
   }
 
+  void _paste(String text) {
+    // Terminals send Enter as CR, so pasted line breaks become CRs too.
+    _terminal.paste(text.replaceAll('\r\n', '\r').replaceAll('\n', '\r'));
+    if (_scrollController.hasClients) {
+      final position = _scrollController.position;
+      position.jumpTo(position.maxScrollExtent);
+    }
+    _focusNode.requestFocus();
+  }
+
+  /// Applies an armed on-screen modifier to a character typed on a hardware
+  /// keyboard, before TerminalView turns the key into a [TerminalKey].
   KeyEventResult _onKeyEvent(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent || (!_ctrl.isActive && !_alt.isActive)) {
+    if (event is KeyUpEvent || !_modifiers.isArmed) {
+      return KeyEventResult.ignored;
+    }
+    final keyboard = HardwareKeyboard.instance;
+    if (keyboard.isControlPressed ||
+        keyboard.isAltPressed ||
+        keyboard.isMetaPressed) {
+      // TerminalView combines the held keys with the armed ones.
       return KeyEventResult.ignored;
     }
     final character = event.character;
-    if (character == null || character.isEmpty) {
+    if (character == null ||
+        character.isEmpty ||
+        character.codeUnitAt(0) < 0x20 ||
+        character == '\x7f') {
       return KeyEventResult.ignored;
     }
-    final handled = _terminal.charInput(
-      character.codeUnitAt(0),
-      ctrl: _ctrl.isActive,
-      alt: _alt.isActive,
-    );
-    if (handled) {
-      _releaseOneShot();
-      return KeyEventResult.handled;
-    }
-    return KeyEventResult.ignored;
+    _terminal.textInput(character);
+    return KeyEventResult.handled;
   }
 
   Future<void> _confirmLeave() async {
@@ -260,20 +316,29 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     }
   }
 
+  static String _describe(SSHConnectionState state) {
+    return switch (state.status) {
+      SSHConnectionStatus.reconnecting when state.waitingFor != null =>
+        'Connection lost. Waiting for ${state.waitingFor} to reconnect.',
+      SSHConnectionStatus.reconnecting =>
+        'Connection lost. Reconnecting (attempt ${state.reconnectAttempt} of '
+            '${state.maxReconnectAttempts})...',
+      SSHConnectionStatus.disconnected => 'Disconnected.',
+      _ => state.errorMessage ?? state.toString(),
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final connection = ref.watch(sshSessionStateProvider(_args));
     final state = connection.asData?.value;
 
     ref.listen(sshSessionStateProvider(_args), (previous, next) {
-      final status = next.asData?.value.status;
-      if (status == SSHConnectionStatus.connected) {
-        _ensureShell();
-      }
+      _onConnectionState(next.asData?.value);
     });
 
     final connected = state?.isConnected ?? false;
-    if (connected && _shell == null && !_opening) {
+    if (connected && _shell == null && !_opening && !_shellExited) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _ensureShell());
     }
 
@@ -316,7 +381,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                     vertical: 8,
                   ),
                   child: Text(
-                    state.errorMessage ?? state.toString(),
+                    _describe(state),
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onErrorContainer,
                     ),
@@ -330,22 +395,39 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                 onPointerMove: _onPointerMove,
                 onPointerUp: _endPointer,
                 onPointerCancel: _endPointer,
-                child: TerminalView(
-                  _terminal,
-                  focusNode: _focusNode,
-                  autofocus: true,
-                  deleteDetection: true,
-                  textStyle: TerminalStyle(fontSize: _fontSize),
-                  keyboardType: TextInputType.text,
-                  onKeyEvent: _onKeyEvent,
+                child: TerminalSelectionOverlay(
+                  terminal: _terminal,
+                  controller: _terminalController,
+                  scrollController: _scrollController,
+                  terminalViewKey: _terminalViewKey,
+                  onPaste: _paste,
+                  // TerminalView pads itself by MediaQuery.padding; the
+                  // keyboard bar below already keeps clear of the system
+                  // navigation bar, so the terminal can use every row.
+                  child: MediaQuery.removePadding(
+                    context: context,
+                    removeBottom: true,
+                    child: TerminalView(
+                      _terminal,
+                      key: _terminalViewKey,
+                      controller: _terminalController,
+                      scrollController: _scrollController,
+                      focusNode: _focusNode,
+                      autofocus: true,
+                      deleteDetection: true,
+                      textStyle: TerminalStyle(fontSize: _fontSize),
+                      keyboardType: TextInputType.text,
+                      onKeyEvent: _onKeyEvent,
+                    ),
+                  ),
                 ),
               ),
             ),
             TerminalKeyboardBar(
-              ctrl: _ctrl,
-              alt: _alt,
-              onToggleCtrl: _toggleCtrl,
-              onToggleAlt: _toggleAlt,
+              ctrl: _modifiers.ctrl,
+              alt: _modifiers.alt,
+              onToggleCtrl: _modifiers.toggleCtrl,
+              onToggleAlt: _modifiers.toggleAlt,
               onKey: _sendKey,
               onText: _sendText,
             ),

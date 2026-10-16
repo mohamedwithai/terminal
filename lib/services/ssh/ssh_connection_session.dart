@@ -9,6 +9,7 @@ import 'package:ssh_app/models/server_config.dart';
 import 'package:ssh_app/models/server_credentials.dart';
 import 'package:ssh_app/services/ssh/connection_log.dart';
 import 'package:ssh_app/services/ssh/host_key_verifier.dart';
+import 'package:ssh_app/services/ssh/reconnect_gate.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_state.dart';
 import 'package:ssh_app/services/ssh/ssh_errors.dart';
 import 'package:ssh_app/services/ssh/ssh_socket_factory.dart';
@@ -34,8 +35,10 @@ class SSHConnectionSession {
       Duration(seconds: 4),
       Duration(seconds: 8),
     ],
+    ReconnectGate? reconnectGate,
     ConnectionLog? log,
-  }) : log = log ?? ConnectionLog();
+  }) : reconnectGate = reconnectGate ?? ReconnectGate(),
+       log = log ?? ConnectionLog();
 
   final String sessionId;
   final ServerConfig server;
@@ -59,6 +62,10 @@ class SSHConnectionSession {
   final Duration keepAliveInterval;
   final List<Duration> reconnectDelays;
 
+  /// Holds reconnect attempts back while the app is in the background or
+  /// offline.
+  final ReconnectGate reconnectGate;
+
   /// What this session did, step by step. Never contains secrets.
   final ConnectionLog log;
 
@@ -72,6 +79,14 @@ class SSHConnectionSession {
   bool _intentionalDisconnect = false;
   bool _isDisposed = false;
   Timer? _reconnectTimer;
+
+  /// Index into [reconnectDelays] of the next attempt while a lost
+  /// connection is being re-established, otherwise null.
+  int? _reconnectIndex;
+  StreamSubscription<void>? _gateSub;
+
+  /// What the reconnect is waiting for, while it waits for [reconnectGate].
+  String? _waitingFor;
 
   /// Incremented whenever an attempt starts or is abandoned. Callbacks from
   /// an older attempt compare against it and stop touching state.
@@ -89,6 +104,12 @@ class SSHConnectionSession {
   SSHConnectionState get state => _state;
   Stream<SSHConnectionState> get stateStream => _stateController.stream;
   bool get isConnected => _state.status == SSHConnectionStatus.connected;
+
+  /// Connected, or getting a lost connection back.
+  bool get isActive =>
+      _state.status == SSHConnectionStatus.connected ||
+      _state.status == SSHConnectionStatus.reconnecting;
+
   SSHClient? get client => _client;
 
   /// The interactive PTY shell, once [openShell] has succeeded.
@@ -112,8 +133,7 @@ class SSHConnectionSession {
   /// [SSHConnectionException].
   Future<void> connectWith(CredentialsLoader loadCredentials) async {
     _intentionalDisconnect = false;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
+    _stopReconnecting();
     _abandonAttempt();
     final attempt = _attempt;
 
@@ -397,32 +417,59 @@ class SSHConnectionSession {
     _startReconnect();
   }
 
+  /// Drives the reconnect loop as if the connection had just dropped, so
+  /// tests can exercise it without an SSH server.
+  void debugSimulateConnectionLost(ServerCredentials credentials) {
+    _intentionalDisconnect = false;
+    _credentials = credentials;
+    log.add('Connection lost (simulated)', isError: true);
+    _startReconnect();
+  }
+
   void _startReconnect() {
     if (_intentionalDisconnect || _isDisposed || _credentials == null) {
       _emit(const SSHConnectionState.disconnected());
       return;
     }
-
-    _reconnectAttempt(0);
+    _reconnectIndex = 0;
+    _gateSub ??= reconnectGate.changes.listen((_) => _onGateChanged());
+    _scheduleReconnect();
   }
 
-  void _reconnectAttempt(int attemptIndex) {
-    if (_intentionalDisconnect || _isDisposed || _credentials == null) {
-      _emit(const SSHConnectionState.disconnected());
+  void _stopReconnecting() {
+    _reconnectIndex = null;
+    _waitingFor = null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _gateSub?.cancel();
+    _gateSub = null;
+  }
+
+  /// Schedules the next attempt, or waits while [reconnectGate] is closed.
+  void _scheduleReconnect() {
+    final index = _reconnectIndex;
+    if (index == null || _isDisposed) {
       return;
     }
+    if (!reconnectGate.isOpen) {
+      _waitForGate();
+      return;
+    }
+    _waitingFor = null;
 
-    if (attemptIndex >= reconnectDelays.length) {
-      const error = SSHUnexpectedDisconnectException(
-        'Connection lost and could not be re-established after 3 attempts.',
+    if (index >= reconnectDelays.length) {
+      _stopReconnecting();
+      final error = SSHUnexpectedDisconnectException(
+        'Connection lost and could not be re-established after '
+        '${reconnectDelays.length} attempts.',
       );
       log.add(error.message, isError: true);
       _emit(SSHConnectionState.error(error.message, error));
       return;
     }
 
-    final attemptNumber = attemptIndex + 1;
-    final delay = reconnectDelays[attemptIndex];
+    final attemptNumber = index + 1;
+    final delay = reconnectDelays[index];
     log.add(
       'Reconnecting in ${_formatDuration(delay)} '
       '(attempt $attemptNumber of ${reconnectDelays.length})',
@@ -431,30 +478,82 @@ class SSHConnectionSession {
       reconnectAttempt: attemptNumber,
       maxReconnectAttempts: reconnectDelays.length,
     ));
+    _reconnectTimer = Timer(delay, _runReconnectAttempt);
+  }
 
-    _reconnectTimer = Timer(delay, () async {
-      if (_intentionalDisconnect || _isDisposed || _credentials == null) {
+  /// Holds the reconnect until [reconnectGate] opens. No attempt is spent.
+  void _waitForGate() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    final reason = reconnectGate.waitingFor;
+    if (reason == _waitingFor) {
+      return;
+    }
+    _waitingFor = reason;
+    log.add('Waiting for $reason before reconnecting');
+    _emit(SSHConnectionState.reconnecting(
+      reconnectAttempt: 0,
+      maxReconnectAttempts: reconnectDelays.length,
+      waitingFor: reason,
+    ));
+  }
+
+  void _onGateChanged() {
+    if (_reconnectIndex == null || _isDisposed) {
+      return;
+    }
+    if (reconnectGate.isOpen) {
+      if (_waitingFor != null) {
+        // Whatever failed before was down to the background or the network,
+        // so the reconnect starts over with every attempt.
+        log.add('Ready to reconnect');
+        _reconnectIndex = 0;
+        _scheduleReconnect();
+      }
+    } else if (_waitingFor != null || _reconnectTimer != null) {
+      // Waiting already, or an attempt is scheduled but has not started. An
+      // attempt in flight is left to finish; if it fails it is not counted.
+      _waitForGate();
+    }
+  }
+
+  Future<void> _runReconnectAttempt() async {
+    _reconnectTimer = null;
+    final index = _reconnectIndex;
+    final credentials = _credentials;
+    if (index == null ||
+        credentials == null ||
+        _intentionalDisconnect ||
+        _isDisposed) {
+      return;
+    }
+    _abandonAttempt();
+    final attempt = _attempt;
+    try {
+      await _establishConnection(attempt, credentials);
+      if (_isCurrent(attempt)) {
+        _stopReconnecting();
+      }
+    } catch (error) {
+      final failure = _recordFailure(attempt, error);
+      if (!_isCurrent(attempt) || _reconnectIndex == null) {
         return;
       }
-      _abandonAttempt();
-      final attempt = _attempt;
-      try {
-        await _establishConnection(attempt, _credentials!);
-      } catch (error) {
-        final failure = _recordFailure(attempt, error);
-        if (!_isCurrent(attempt)) {
-          return;
-        }
-        final e = failure.error;
-        if (e is SSHAuthFailedException || e is SSHHostKeyChangedException) {
-          // Never retry on auth failures or host key changes
-          _emit(SSHConnectionState.error(e.message, e, failure.stage));
-        } else {
-          // Retry next attempt
-          _reconnectAttempt(attemptIndex + 1);
-        }
+      final e = failure.error;
+      if (e is SSHAuthFailedException || e is SSHHostKeyChangedException) {
+        // Never retry on auth failures or host key changes
+        _stopReconnecting();
+        _emit(SSHConnectionState.error(e.message, e, failure.stage));
+        return;
       }
-    });
+      if (!reconnectGate.isOpen) {
+        // It failed because the app went to the background or offline.
+        _waitForGate();
+        return;
+      }
+      _reconnectIndex = index + 1;
+      _scheduleReconnect();
+    }
   }
 
   /// Returns the interactive shell, opening one if there is none.
@@ -593,8 +692,7 @@ class SSHConnectionSession {
   /// An attempt still in progress is abandoned and its connection closed.
   Future<void> disconnect() async {
     _intentionalDisconnect = true;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
+    _stopReconnecting();
     _abandonAttempt();
 
     _closeShell();
@@ -609,8 +707,7 @@ class SSHConnectionSession {
   void dispose() {
     _isDisposed = true;
     _intentionalDisconnect = true;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
+    _stopReconnecting();
     _abandonAttempt();
     _closeShell();
     _client?.close();

@@ -14,7 +14,7 @@ Future<void> main() async {
       overrides: [
         metadataStoreProvider.overrideWithValue(metadataStore),
       ],
-      child: const SshApp(),
+      child: const SessionKeeperScope(child: SshApp()),
     ),
   );
 }
