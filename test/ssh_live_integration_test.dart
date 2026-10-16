@@ -14,149 +14,246 @@ import 'package:ssh_app/services/ssh/ssh_errors.dart';
 
 /// LIVE SSH INTEGRATION TEST
 ///
-/// HOW TO RUN:
-/// Ensure an SSH server is running on the target machine, then run:
-///   dart test --tags live
+/// Skipped unless the target and credentials are set. There are no default
+/// host, username, or password values.
 ///
-/// CONFIGURATION VIA ENVIRONMENT VARIABLES:
-/// - SSH_TEST_HOST     Target host (default: '127.0.0.1')
-/// - SSH_TEST_PORT     Target port (default: 22)
-/// - SSH_TEST_USER     SSH username (default: 'testuser')
-/// - SSH_TEST_PASSWORD SSH password (default: 'testpass')
+/// HOW TO RUN:
+///   flutter test --tags live --run-skipped test/ssh_live_integration_test.dart
+///
+/// ENVIRONMENT VARIABLES:
+/// - SSH_TEST_HOST              Target host (required)
+/// - SSH_TEST_PORT              Target port (optional, default 22)
+/// - SSH_TEST_USER              SSH username (required)
+/// - SSH_TEST_PASSWORD          Password (required when SSH_TEST_KEY_PATH is unset)
+/// - SSH_TEST_KEY_PATH          Private key file (optional; used instead of the password)
+/// - SSH_TEST_KEY_PASSPHRASE    Passphrase for that key (optional)
 ///
 /// Example:
-///   $env:SSH_TEST_HOST="127.0.0.1"; $env:SSH_TEST_PORT="22"; $env:SSH_TEST_USER="hasan"; dart test -t live
+///   SSH_TEST_HOST=203.0.113.10 SSH_TEST_USER=ada SSH_TEST_KEY_PATH=~/.ssh/id_ed25519 \
+///     flutter test --tags live --run-skipped test/ssh_live_integration_test.dart
 void main() {
-  final host = Platform.environment['SSH_TEST_HOST'] ?? '127.0.0.1';
-  final port = int.tryParse(Platform.environment['SSH_TEST_PORT'] ?? '22') ?? 22;
-  final user = Platform.environment['SSH_TEST_USER'] ?? 'testuser';
-  final password = Platform.environment['SSH_TEST_PASSWORD'] ?? 'testpass';
-
-  final server = ServerConfig.create(
-    id: 'live-test-server',
-    label: 'Live Localhost Test',
-    host: host,
-    port: port,
-    username: user,
-    authType: AuthType.password,
-  );
-
-  setUpAll(() async {
-    // Quick connectivity pre-check so failure messages are crystal clear
-    try {
-      final socket = await Socket.connect(host, port, timeout: const Duration(seconds: 2));
-      socket.destroy();
-    } catch (e) {
-      stderr.writeln(
-        '\n[NOTICE] Could not connect to sshd at $host:$port ($e).\n'
-        'To run the live integration test, start an SSH server or configure '
-        'SSH_TEST_HOST, SSH_TEST_PORT, SSH_TEST_USER, and SSH_TEST_PASSWORD.\n',
-      );
-    }
-  });
+  final parsed = _parseLiveEnv(Platform.environment);
 
   test('connects to live sshd, runs "echo ok", verifies output', () async {
-    final knownHosts = <String, KnownHost>{};
-    final verifier = HostKeyVerifier(
-      findKnownHost: (h, p) => knownHosts['$h:$p'],
-      saveKnownHost: (kh) => knownHosts['${kh.host}:${kh.port}'] = kh,
-    );
+    final env = _requireLive(parsed);
+    if (env == null) {
+      return;
+    }
 
+    final server = _server(env);
+    final knownHosts = <String, KnownHost>{};
     final session = SSHConnectionSession(
       sessionId: 'live-session-1',
       server: server,
-      hostKeyVerifier: verifier,
+      hostKeyVerifier: _verifier(knownHosts),
       connectTimeout: const Duration(seconds: 5),
     );
+    final sub = session.stateStream.listen((state) {
+      if (state.challenge != null) {
+        state.challenge!.accept();
+      }
+    });
 
     try {
-      // Connect and accept host key if challenged
-      final connectFuture = session.connect(ServerCredentials(password: password));
-
-      // Listen for challenge to automatically accept
-      final sub = session.stateStream.listen((state) {
-        if (state.challenge != null) {
-          state.challenge!.accept();
-        }
-      });
-
-      await connectFuture;
-      await sub.cancel();
-
+      await session.connect(_credentials(env));
       expect(session.isConnected, isTrue);
-
       final output = await session.execute('echo ok');
       expect(output.trim(), contains('ok'));
     } finally {
+      await sub.cancel();
       await session.disconnect();
     }
   });
 
-  test('wrong password path throws SSHAuthFailedException', () async {
-    final knownHosts = <String, KnownHost>{};
-    final verifier = HostKeyVerifier(
-      findKnownHost: (h, p) => knownHosts['$h:$p'],
-      saveKnownHost: (kh) => knownHosts['${kh.host}:${kh.port}'] = kh,
-    );
+  test('wrong credentials path throws SSHAuthFailedException', () async {
+    final env = _requireLive(parsed);
+    if (env == null) {
+      return;
+    }
 
+    final knownHosts = <String, KnownHost>{};
     final session = SSHConnectionSession(
-      sessionId: 'live-session-wrong-pw',
-      server: server,
-      hostKeyVerifier: verifier,
+      sessionId: 'live-session-wrong-auth',
+      server: _server(env),
+      hostKeyVerifier: _verifier(knownHosts),
       connectTimeout: const Duration(seconds: 5),
     );
+    final sub = session.stateStream.listen((state) {
+      if (state.challenge != null) {
+        state.challenge!.accept();
+      }
+    });
 
     try {
-      final connectFuture = session.connect(
-        const ServerCredentials(password: 'definitely-wrong-password-xyz123'),
-      );
-
-      final sub = session.stateStream.listen((state) {
-        if (state.challenge != null) {
-          state.challenge!.accept();
-        }
-      });
-
       await expectLater(
-        connectFuture,
+        session.connect(_wrongCredentials(env)),
         throwsA(isA<SSHAuthFailedException>()),
       );
-      await sub.cancel();
     } finally {
+      await sub.cancel();
       await session.disconnect();
     }
   });
 
   test('changed host key path throws SSHHostKeyChangedException', () async {
+    final env = _requireLive(parsed);
+    if (env == null) {
+      return;
+    }
+
     final knownHosts = <String, KnownHost>{
-      '$host:$port': KnownHost(
-        host: host,
-        port: port,
+      '${env.host}:${env.port}': KnownHost(
+        host: env.host,
+        port: env.port,
         keyType: 'ssh-ed25519',
         fingerprint: 'SHA256:FAKE_CHANGED_FINGERPRINT_DOES_NOT_MATCH',
         addedAt: DateTime.utc(2026, 1, 1),
       ),
     };
-
-    final verifier = HostKeyVerifier(
-      findKnownHost: (h, p) => knownHosts['$h:$p'],
-      saveKnownHost: (kh) => knownHosts['${kh.host}:${kh.port}'] = kh,
-    );
-
     final session = SSHConnectionSession(
       sessionId: 'live-session-changed-key',
-      server: server,
-      hostKeyVerifier: verifier,
+      server: _server(env),
+      hostKeyVerifier: _verifier(knownHosts),
       connectTimeout: const Duration(seconds: 5),
     );
 
     try {
       await expectLater(
-        session.connect(ServerCredentials(password: password)),
+        session.connect(_credentials(env)),
         throwsA(isA<SSHHostKeyChangedException>()),
       );
     } finally {
       await session.disconnect();
     }
   });
+}
+
+const _skipMessage =
+    'Set SSH_TEST_HOST, SSH_TEST_USER, and SSH_TEST_PASSWORD or SSH_TEST_KEY_PATH.';
+
+class _LiveEnv {
+  const _LiveEnv({
+    required this.host,
+    required this.port,
+    required this.user,
+    required this.authType,
+    this.password,
+    this.keyPath,
+    this.keyPassphrase,
+  });
+
+  final String host;
+  final int port;
+  final String user;
+  final AuthType authType;
+  final String? password;
+  final String? keyPath;
+  final String? keyPassphrase;
+}
+
+class _LiveParse {
+  const _LiveParse({this.env, this.error});
+
+  final _LiveEnv? env;
+  final String? error;
+}
+
+_LiveParse _parseLiveEnv(Map<String, String> env) {
+  final host = env['SSH_TEST_HOST']?.trim() ?? '';
+  final user = env['SSH_TEST_USER']?.trim() ?? '';
+  final password = env['SSH_TEST_PASSWORD'] ?? '';
+  final keyPath = env['SSH_TEST_KEY_PATH']?.trim() ?? '';
+  final passphrase = env['SSH_TEST_KEY_PASSPHRASE'];
+  final hasPassword = password.isNotEmpty;
+  final hasKey = keyPath.isNotEmpty;
+
+  if (host.isEmpty || user.isEmpty || (!hasPassword && !hasKey)) {
+    return const _LiveParse();
+  }
+
+  final portText = env['SSH_TEST_PORT']?.trim() ?? '';
+  var port = 22;
+  if (portText.isNotEmpty) {
+    final parsed = int.tryParse(portText);
+    if (parsed == null || parsed < 1 || parsed > 65535) {
+      return const _LiveParse(
+        error: 'SSH_TEST_PORT must be an integer from 1 to 65535.',
+      );
+    }
+    port = parsed;
+  }
+
+  if (hasKey) {
+    return _LiveParse(
+      env: _LiveEnv(
+        host: host,
+        port: port,
+        user: user,
+        authType: AuthType.privateKey,
+        keyPath: keyPath,
+        keyPassphrase: (passphrase != null && passphrase.isNotEmpty)
+            ? passphrase
+            : null,
+      ),
+    );
+  }
+
+  return _LiveParse(
+    env: _LiveEnv(
+      host: host,
+      port: port,
+      user: user,
+      authType: AuthType.password,
+      password: password,
+    ),
+  );
+}
+
+_LiveEnv? _requireLive(_LiveParse parsed) {
+  if (parsed.error != null) {
+    fail(parsed.error!);
+  }
+  if (parsed.env == null) {
+    markTestSkipped(_skipMessage);
+    return null;
+  }
+  return parsed.env;
+}
+
+ServerConfig _server(_LiveEnv env) {
+  return ServerConfig.create(
+    id: 'live-test-server',
+    label: 'Live SSH Test',
+    host: env.host,
+    port: env.port,
+    username: env.user,
+    authType: env.authType,
+  );
+}
+
+HostKeyVerifier _verifier(Map<String, KnownHost> knownHosts) {
+  return HostKeyVerifier(
+    findKnownHost: (host, port) => knownHosts['$host:$port'],
+    saveKnownHost: (knownHost) =>
+        knownHosts['${knownHost.host}:${knownHost.port}'] = knownHost,
+  );
+}
+
+ServerCredentials _credentials(_LiveEnv env) {
+  if (env.authType == AuthType.privateKey) {
+    return ServerCredentials(
+      privateKey: File(env.keyPath!).readAsStringSync(),
+      passphrase: env.keyPassphrase,
+    );
+  }
+  return ServerCredentials(password: env.password);
+}
+
+ServerCredentials _wrongCredentials(_LiveEnv env) {
+  if (env.authType == AuthType.privateKey) {
+    return const ServerCredentials(
+      privateKey: '-----BEGIN OPENSSH PRIVATE KEY-----\ninvalid\n-----END OPENSSH PRIVATE KEY-----',
+    );
+  }
+  return const ServerCredentials(password: 'definitely-wrong-password-xyz123');
 }

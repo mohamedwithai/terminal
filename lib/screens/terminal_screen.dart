@@ -36,9 +36,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   var _pinchBase = 14.0;
   var _pinchStart = 0.0;
   final Map<int, Offset> _pointers = {};
-  var _ctrl = false;
-  var _alt = false;
+  var _ctrl = ModifierLatch.off;
+  var _alt = ModifierLatch.off;
   var _opening = false;
+  var _confirmingLeave = false;
 
   ({String sessionId, ServerConfig server}) get _args =>
       (sessionId: widget.sessionId, server: widget.server);
@@ -59,25 +60,26 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   }
 
   void _sendToShell(String data) {
-    ref.read(sshConnectionServiceProvider).getSession(widget.sessionId)?.writeShell(
-          utf8.encode(data),
-        );
+    ref
+        .read(sshConnectionServiceProvider)
+        .getSession(widget.sessionId)
+        ?.writeShell(utf8.encode(data));
   }
 
   void _resizeShell(int columns, int rows, int pixelWidth, int pixelHeight) {
-    ref.read(sshConnectionServiceProvider).getSession(widget.sessionId)?.resizeShell(
-          columns,
-          rows,
-          pixelWidth,
-          pixelHeight,
-        );
+    ref
+        .read(sshConnectionServiceProvider)
+        .getSession(widget.sessionId)
+        ?.resizeShell(columns, rows, pixelWidth, pixelHeight);
   }
 
   Future<void> _ensureShell() async {
     if (_opening || _shell != null) {
       return;
     }
-    final session = ref.read(sshConnectionServiceProvider).getSession(widget.sessionId);
+    final session = ref
+        .read(sshConnectionServiceProvider)
+        .getSession(widget.sessionId);
     if (session == null || !session.isConnected) {
       return;
     }
@@ -96,13 +98,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
           .map<List<int>>((chunk) => chunk)
           .transform(const Utf8Decoder(allowMalformed: true))
           .listen(_terminal.write);
-      unawaited(shell.done.then((_) {
-        if (!mounted || !identical(_shell, shell)) {
-          return;
-        }
-        _shell = null;
-        _terminal.write('\r\n[session closed]\r\n');
-      }));
+      unawaited(
+        shell.done.then((_) {
+          if (!mounted || !identical(_shell, shell)) {
+            return;
+          }
+          _shell = null;
+          _terminal.write('\r\n[session closed]\r\n');
+        }),
+      );
     } catch (error) {
       if (mounted) {
         _terminal.write('\r\nCould not open a shell: $error\r\n');
@@ -151,15 +155,40 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     });
   }
 
+  void _toggleCtrl() {
+    setState(() => _ctrl = advanceModifierLatch(_ctrl));
+  }
+
+  void _toggleAlt() {
+    setState(() => _alt = advanceModifierLatch(_alt));
+  }
+
+  void _releaseOneShot() {
+    final ctrl = releaseOneShotModifier(_ctrl);
+    final alt = releaseOneShotModifier(_alt);
+    if (ctrl == _ctrl && alt == _alt) {
+      return;
+    }
+    setState(() {
+      _ctrl = ctrl;
+      _alt = alt;
+    });
+  }
+
   void _sendKey(TerminalKey key) {
-    _terminal.keyInput(key, ctrl: _ctrl, alt: _alt);
+    _terminal.keyInput(key, ctrl: _ctrl.isActive, alt: _alt.isActive);
+    _releaseOneShot();
     _focusNode.requestFocus();
   }
 
   void _sendText(String text) {
-    if (_ctrl || _alt) {
+    if (_ctrl.isActive || _alt.isActive) {
       for (final code in text.codeUnits) {
-        final handled = _terminal.charInput(code, ctrl: _ctrl, alt: _alt);
+        final handled = _terminal.charInput(
+          code,
+          ctrl: _ctrl.isActive,
+          alt: _alt.isActive,
+        );
         if (!handled) {
           _terminal.textInput(text);
           break;
@@ -168,11 +197,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     } else {
       _terminal.textInput(text);
     }
+    _releaseOneShot();
     _focusNode.requestFocus();
   }
 
   KeyEventResult _onKeyEvent(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent || (!_ctrl && !_alt)) {
+    if (event is! KeyDownEvent || (!_ctrl.isActive && !_alt.isActive)) {
       return KeyEventResult.ignored;
     }
     final character = event.character;
@@ -181,10 +211,53 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     }
     final handled = _terminal.charInput(
       character.codeUnitAt(0),
-      ctrl: _ctrl,
-      alt: _alt,
+      ctrl: _ctrl.isActive,
+      alt: _alt.isActive,
     );
-    return handled ? KeyEventResult.handled : KeyEventResult.ignored;
+    if (handled) {
+      _releaseOneShot();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  Future<void> _confirmLeave() async {
+    if (_confirmingLeave || !mounted) {
+      return;
+    }
+    _confirmingLeave = true;
+    final leave = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Disconnect?'),
+          content: Text(
+            'Disconnect from ${widget.server.label} and close this terminal?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Stay'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Disconnect'),
+            ),
+          ],
+        );
+      },
+    );
+    if (!mounted) {
+      return;
+    }
+    if (leave != true) {
+      _confirmingLeave = false;
+      return;
+    }
+    await ref.read(sshSessionControllerProvider(_args)).disconnect();
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
   }
 
   @override
@@ -204,66 +277,80 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) => _ensureShell());
     }
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      resizeToAvoidBottomInset: true,
-      appBar: AppBar(
-        title: Text(widget.server.label),
-        actions: [
-          IconButton(
-            tooltip: 'Disconnect',
-            onPressed: () async {
-              await ref.read(sshSessionControllerProvider(_args)).disconnect();
-              if (context.mounted) {
-                Navigator.of(context).pop();
-              }
-            },
-            icon: const Icon(Icons.power_settings_new),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          if (state != null && !connected)
-            Material(
-              color: Theme.of(context).colorScheme.errorContainer,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Text(
-                  state.errorMessage ?? state.toString(),
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onErrorContainer,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) {
+          return;
+        }
+        unawaited(_confirmLeave());
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        resizeToAvoidBottomInset: true,
+        appBar: AppBar(
+          title: Text(widget.server.label),
+          actions: [
+            IconButton(
+              tooltip: 'Disconnect',
+              onPressed: () async {
+                await ref
+                    .read(sshSessionControllerProvider(_args))
+                    .disconnect();
+                if (context.mounted) {
+                  Navigator.of(context).pop();
+                }
+              },
+              icon: const Icon(Icons.power_settings_new),
+            ),
+          ],
+        ),
+        body: Column(
+          children: [
+            if (state != null && !connected)
+              Material(
+                color: Theme.of(context).colorScheme.errorContainer,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  child: Text(
+                    state.errorMessage ?? state.toString(),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onErrorContainer,
+                    ),
                   ),
                 ),
               ),
-            ),
-          Expanded(
-            child: Listener(
-              behavior: HitTestBehavior.translucent,
-              onPointerDown: _onPointerDown,
-              onPointerMove: _onPointerMove,
-              onPointerUp: _endPointer,
-              onPointerCancel: _endPointer,
-              child: TerminalView(
-                _terminal,
-                focusNode: _focusNode,
-                autofocus: true,
-                deleteDetection: true,
-                textStyle: TerminalStyle(fontSize: _fontSize),
-                keyboardType: TextInputType.text,
-                onKeyEvent: _onKeyEvent,
+            Expanded(
+              child: Listener(
+                behavior: HitTestBehavior.translucent,
+                onPointerDown: _onPointerDown,
+                onPointerMove: _onPointerMove,
+                onPointerUp: _endPointer,
+                onPointerCancel: _endPointer,
+                child: TerminalView(
+                  _terminal,
+                  focusNode: _focusNode,
+                  autofocus: true,
+                  deleteDetection: true,
+                  textStyle: TerminalStyle(fontSize: _fontSize),
+                  keyboardType: TextInputType.text,
+                  onKeyEvent: _onKeyEvent,
+                ),
               ),
             ),
-          ),
-          TerminalKeyboardBar(
-            ctrl: _ctrl,
-            alt: _alt,
-            onToggleCtrl: () => setState(() => _ctrl = !_ctrl),
-            onToggleAlt: () => setState(() => _alt = !_alt),
-            onKey: _sendKey,
-            onText: _sendText,
-          ),
-        ],
+            TerminalKeyboardBar(
+              ctrl: _ctrl,
+              alt: _alt,
+              onToggleCtrl: _toggleCtrl,
+              onToggleAlt: _toggleAlt,
+              onKey: _sendKey,
+              onText: _sendText,
+            ),
+          ],
+        ),
       ),
     );
   }

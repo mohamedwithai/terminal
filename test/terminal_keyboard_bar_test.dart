@@ -21,18 +21,29 @@ void main() {
     expect(output.toString(), '\x1b\t\x1b[A\x1b[B\x1b[D\x1b[C\x03|~/');
   });
 
-  testWidgets('keyboard bar forwards keys and toggles modifiers', (tester) async {
+  test('a second press locks a modifier and a sent key clears one-shot', () {
+    expect(advanceModifierLatch(ModifierLatch.off), ModifierLatch.once);
+    expect(advanceModifierLatch(ModifierLatch.once), ModifierLatch.locked);
+    expect(advanceModifierLatch(ModifierLatch.locked), ModifierLatch.off);
+    expect(releaseOneShotModifier(ModifierLatch.once), ModifierLatch.off);
+    expect(releaseOneShotModifier(ModifierLatch.locked), ModifierLatch.locked);
+    expect(releaseOneShotModifier(ModifierLatch.off), ModifierLatch.off);
+  });
+
+  testWidgets('keyboard bar forwards keys and toggles modifiers', (
+    tester,
+  ) async {
     TerminalKey? key;
     String? text;
-    var ctrl = false;
+    var ctrl = ModifierLatch.off;
 
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: TerminalKeyboardBar(
             ctrl: ctrl,
-            alt: false,
-            onToggleCtrl: () => ctrl = true,
+            alt: ModifierLatch.off,
+            onToggleCtrl: () => ctrl = advanceModifierLatch(ctrl),
             onToggleAlt: () {},
             onKey: (value) => key = value,
             onText: (value) => text = value,
@@ -47,6 +58,33 @@ void main() {
 
     expect(key, TerminalKey.escape);
     expect(text, '|');
-    expect(ctrl, isTrue);
+    expect(ctrl, ModifierLatch.once);
+  });
+
+  testWidgets('locked modifier shows a lock icon', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: TerminalKeyboardBar(
+            ctrl: ModifierLatch.locked,
+            alt: ModifierLatch.once,
+            onToggleCtrl: _noop,
+            onToggleAlt: _noop,
+            onKey: _noopKey,
+            onText: _noopText,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byTooltip('CTRL, locked'), findsOneWidget);
+    expect(find.byIcon(Icons.lock), findsOneWidget);
+    expect(find.byTooltip('ALT, next key'), findsOneWidget);
   });
 }
+
+void _noop() {}
+
+void _noopKey(TerminalKey key) {}
+
+void _noopText(String text) {}
