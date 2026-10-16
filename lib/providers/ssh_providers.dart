@@ -43,6 +43,26 @@ final sshConnectionServiceProvider = Provider<SSHConnectionService>((ref) {
   return service;
 });
 
+/// What time it is. Tests and golden files pin it.
+final clockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
+
+/// Sessions that are connected or getting a lost connection back.
+final activeSessionsProvider = StreamProvider<List<SSHConnectionSession>>((
+  ref,
+) {
+  if (kIsWeb) {
+    return Stream.value(const []);
+  }
+  final service = ref.watch(sshConnectionServiceProvider);
+  return Stream.multi((controller) {
+    controller.add(service.activeSessions);
+    final sub = service.changes.listen(
+      (_) => controller.add(service.activeSessions),
+    );
+    controller.onCancel = sub.cancel;
+  });
+});
+
 /// Stream of connection state snapshots for a specific session.
 final sshSessionStateProvider =
     StreamProvider.autoDispose.family<SSHConnectionState, ({String sessionId, ServerConfig server})>(

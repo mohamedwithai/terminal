@@ -17,6 +17,8 @@ class ServerConfig {
     required this.authType,
     required this.createdAt,
     required this.updatedAt,
+    this.tags = const [],
+    this.lastConnectedAt,
   });
 
   /// New server with a UUID and matching created/updated timestamps.
@@ -27,6 +29,7 @@ class ServerConfig {
     int port = 22,
     required String username,
     required AuthType authType,
+    List<String> tags = const [],
     DateTime? now,
   }) {
     final timestamp = (now ?? DateTime.now()).toUtc();
@@ -39,9 +42,12 @@ class ServerConfig {
       authType: authType,
       createdAt: timestamp,
       updatedAt: timestamp,
+      tags: tags,
     );
   }
 
+  /// Reads a stored record. `tags` and `lastConnectedAt` are optional, so
+  /// records saved by older versions still load.
   factory ServerConfig.fromJson(Map<String, dynamic> json) {
     return ServerConfig(
       id: _requiredString(json, 'id'),
@@ -52,6 +58,8 @@ class ServerConfig {
       authType: AuthType.parse(_requiredString(json, 'authType')),
       createdAt: _requiredDate(json, 'createdAt'),
       updatedAt: _requiredDate(json, 'updatedAt'),
+      tags: _optionalTags(json['tags']),
+      lastConnectedAt: _optionalDate(json['lastConnectedAt']),
     );
   }
 
@@ -63,6 +71,12 @@ class ServerConfig {
   final AuthType authType;
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  /// Labels such as "Personal" or "Clients", for filtering the host list.
+  final List<String> tags;
+
+  /// When a connection to this server last succeeded, if ever.
+  final DateTime? lastConnectedAt;
 
   /// Field messages for the add/edit form. Empty when the record is usable.
   Map<String, String> get fieldErrors {
@@ -97,10 +111,18 @@ class ServerConfig {
 
   /// Trimmed copy used before the record is written to Hive.
   ServerConfig normalized() {
+    final cleanTags = <String>[];
+    for (final tag in tags) {
+      final trimmed = tag.trim();
+      if (trimmed.isNotEmpty && !cleanTags.contains(trimmed)) {
+        cleanTags.add(trimmed);
+      }
+    }
     return copyWith(
       label: label.trim(),
       host: host.trim(),
       username: username.trim(),
+      tags: cleanTags,
     );
   }
 
@@ -113,6 +135,8 @@ class ServerConfig {
     AuthType? authType,
     DateTime? createdAt,
     DateTime? updatedAt,
+    List<String>? tags,
+    DateTime? lastConnectedAt,
   }) {
     return ServerConfig(
       id: id ?? this.id,
@@ -123,6 +147,8 @@ class ServerConfig {
       authType: authType ?? this.authType,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      tags: tags ?? this.tags,
+      lastConnectedAt: lastConnectedAt ?? this.lastConnectedAt,
     );
   }
 
@@ -136,6 +162,9 @@ class ServerConfig {
       'authType': authType.name,
       'createdAt': createdAt.toUtc().toIso8601String(),
       'updatedAt': updatedAt.toUtc().toIso8601String(),
+      'tags': tags,
+      if (lastConnectedAt != null)
+        'lastConnectedAt': lastConnectedAt!.toUtc().toIso8601String(),
     };
   }
 
@@ -149,7 +178,9 @@ class ServerConfig {
         other.username == username &&
         other.authType == authType &&
         other.createdAt.toUtc() == createdAt.toUtc() &&
-        other.updatedAt.toUtc() == updatedAt.toUtc();
+        other.updatedAt.toUtc() == updatedAt.toUtc() &&
+        _sameTags(other.tags, tags) &&
+        other.lastConnectedAt?.toUtc() == lastConnectedAt?.toUtc();
   }
 
   @override
@@ -162,6 +193,8 @@ class ServerConfig {
         authType,
         createdAt.toUtc(),
         updatedAt.toUtc(),
+        Object.hashAll(tags),
+        lastConnectedAt?.toUtc(),
       );
 
   @override
@@ -184,6 +217,29 @@ int _requiredPort(Object? value) {
     throw const FormatException('Server config is missing "port".');
   }
   return value.toInt();
+}
+
+List<String> _optionalTags(Object? value) {
+  if (value is! List) {
+    return const [];
+  }
+  return [for (final tag in value) if (tag is String) tag];
+}
+
+DateTime? _optionalDate(Object? value) {
+  return value is String ? DateTime.tryParse(value)?.toUtc() : null;
+}
+
+bool _sameTags(List<String> a, List<String> b) {
+  if (a.length != b.length) {
+    return false;
+  }
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 DateTime _requiredDate(Map<String, dynamic> json, String key) {

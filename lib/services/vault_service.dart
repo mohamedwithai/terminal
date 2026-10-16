@@ -59,6 +59,21 @@ class VaultService {
     return _lock(() => _saveServer(config, credentials));
   }
 
+  /// Records a successful connection to [serverId] at [at]. Only the
+  /// metadata changes; returns the updated record, or null if the server is
+  /// gone.
+  Future<ServerConfig?> recordConnected(String serverId, DateTime at) {
+    return _lock(() async {
+      final server = await _metadata.getServer(serverId);
+      if (server == null) {
+        return null;
+      }
+      final updated = server.copyWith(lastConnectedAt: at.toUtc());
+      await _metadata.putServer(updated);
+      return updated;
+    });
+  }
+
   /// Removes the Hive record and the `cred_<id>` secret.
   Future<void> deleteServer(String id) {
     return _lock(() => _deleteServer(id));
@@ -103,6 +118,8 @@ class VaultService {
     final stored = normalized.copyWith(
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
+      // The form does not edit this; keep what the vault recorded.
+      lastConnectedAt: existing?.lastConnectedAt,
     );
     final key = credentialStorageKey(stored.id);
     try {

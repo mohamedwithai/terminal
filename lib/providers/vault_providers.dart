@@ -49,6 +49,18 @@ class ServerListNotifier extends AsyncNotifier<List<ServerConfig>> {
     ref.invalidateSelf();
   }
 
+  /// Notes a successful connection, for "last connected" on the list.
+  Future<void> recordConnected(String id, DateTime at) async {
+    final updated =
+        await ref.read(vaultServiceProvider).recordConnected(id, at);
+    final current = state.asData?.value;
+    if (updated != null && current != null) {
+      state = AsyncData([
+        for (final server in current) server.id == id ? updated : server,
+      ]);
+    }
+  }
+
   Future<void> delete(String id) async {
     final current = state.asData?.value;
     if (current != null) {

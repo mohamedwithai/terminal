@@ -2,18 +2,31 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dartssh2/dartssh2.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ssh_app/models/server_config.dart';
+import 'package:ssh_app/providers/preferences_providers.dart';
 import 'package:ssh_app/providers/ssh_providers.dart';
+import 'package:ssh_app/providers/vault_providers.dart';
 import 'package:ssh_app/screens/pty_resize.dart';
+import 'package:ssh_app/screens/server_form_screen.dart';
+import 'package:ssh_app/screens/settings_screen.dart';
+import 'package:ssh_app/screens/terminal/connection_card.dart';
+import 'package:ssh_app/screens/terminal/connection_log_view.dart';
+import 'package:ssh_app/screens/terminal/host_key_sheet.dart';
 import 'package:ssh_app/screens/terminal_input.dart';
 import 'package:ssh_app/screens/terminal_keyboard_bar.dart';
 import 'package:ssh_app/screens/terminal_paste.dart';
 import 'package:ssh_app/screens/terminal_selection.dart';
+import 'package:ssh_app/screens/widgets/host_avatar.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_session.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_state.dart';
+import 'package:ssh_app/services/ssh/ssh_errors.dart';
+import 'package:ssh_app/theme/tokens.dart';
+import 'package:uuid/uuid.dart';
 import 'package:xterm/xterm.dart';
 
 /// Written before the first output of the shell that replaces a lost one.
@@ -26,16 +39,26 @@ const _resetModes =
     '\x1b[?1049l\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l'
     '\x1b[?2004l\x1b[?1l\x1b>\x1b[0m';
 
-/// Full-screen terminal bound to an already opened SSH session.
+/// Connects to [server] and runs its shell.
+///
+/// While connecting, a card over the terminal shows the steps; an unknown
+/// host key is confirmed in a bottom sheet first.
 class TerminalScreen extends ConsumerStatefulWidget {
   const TerminalScreen({
     super.key,
     required this.server,
-    required this.sessionId,
+    this.sessionId,
+    this.autoConnect = true,
   });
 
   final ServerConfig server;
-  final String sessionId;
+
+  /// Fixed session ID for tests. A new one is generated when null.
+  final String? sessionId;
+
+  /// Starts connecting when the screen opens. Tests that drive the
+  /// connection state themselves turn it off.
+  final bool autoConnect;
 
   @override
   ConsumerState<TerminalScreen> createState() => _TerminalScreenState();
@@ -53,14 +76,35 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   late final _ptySize = PtyResizeDebouncer(send: _sendPtySize);
   final FocusNode _focusNode = FocusNode();
 
+  /// Columns and rows, for the bar.
+  final _gridSize = ValueNotifier<(int, int)>((80, 24));
+
+  late ServerConfig _server = widget.server;
+  late String _sessionId = widget.sessionId ?? const Uuid().v4();
+
   SSHSession? _shell;
   StreamSubscription<String>? _outputSub;
-  var _fontSize = 14.0;
+
+  /// Font size while a pinch is in progress; otherwise the saved size.
+  double? _pinchFontSize;
   var _pinchBase = 14.0;
   var _pinchStart = 0.0;
   final Map<int, Offset> _pointers = {};
   var _opening = false;
   var _confirmingLeave = false;
+
+  /// A connection attempt was started from this screen.
+  var _attempted = false;
+
+  /// The session reached "connected" at least once.
+  var _wasConnected = false;
+
+  /// Failure that did not come through the state stream.
+  String? _startError;
+
+  /// The shell did not open after sign-in.
+  String? _shellError;
+  HostKeyChallenge? _shownChallenge;
 
   /// The connection dropped; the next shell is announced as a new one.
   var _connectionLost = false;
@@ -70,10 +114,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   var _shellExited = false;
 
   ({String sessionId, ServerConfig server}) get _args =>
-      (sessionId: widget.sessionId, server: widget.server);
+      (sessionId: _sessionId, server: _server);
 
   SSHConnectionSession? get _session =>
-      ref.read(sshConnectionServiceProvider).getSession(widget.sessionId);
+      ref.read(sshConnectionServiceProvider).getSession(_sessionId);
 
   @override
   void initState() {
@@ -81,11 +125,17 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     _terminal.onOutput = _sendToShell;
     _terminal.onResize = _onTerminalResize;
     _modifiers.addListener(_onModifiersChanged);
+    HardwareKeyboard.instance.addHandler(_onHardwareKey);
+    if (widget.autoConnect && !kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _connect());
+    }
   }
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onHardwareKey);
     _ptySize.dispose();
+    _gridSize.dispose();
     _modifiers.removeListener(_onModifiersChanged);
     _modifiers.dispose();
     _outputSub?.cancel();
@@ -99,6 +149,28 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   void _onModifiersChanged() {
     if (mounted) {
       setState(() {});
+    }
+  }
+
+  Future<void> _connect() async {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _attempted = true;
+      _startError = null;
+      _shellError = null;
+      _shellExited = false;
+      _shownChallenge = null;
+    });
+    try {
+      await ref.read(sshSessionControllerProvider(_args)).connect();
+    } on SSHConnectionException {
+      // Shown through the state stream and the connection log.
+    } catch (error) {
+      if (mounted) {
+        setState(() => _startError = '$error');
+      }
     }
   }
 
@@ -116,6 +188,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
       pixelWidth: columns * cellWidth,
       pixelHeight: rows * cellHeight,
     ));
+    // Widgets cannot change during layout; the bar updates after the frame.
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _gridSize.value = (columns, rows);
+      }
+    });
   }
 
   void _sendPtySize(PtySize size) {
@@ -129,7 +207,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
 
   void _onConnectionState(SSHConnectionState? state) {
     switch (state?.status) {
+      case SSHConnectionStatus.awaitingHostKeyConfirmation:
+        final challenge = state?.challenge;
+        if (challenge != null) {
+          _showHostKey(challenge);
+        }
       case SSHConnectionStatus.connected:
+        _wasConnected = true;
+        _recordConnected();
         _ensureShell();
       case SSHConnectionStatus.reconnecting when !_connectionLost:
         _connectionLost = true;
@@ -142,15 +227,36 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     }
   }
 
+  void _showHostKey(HostKeyChallenge challenge) {
+    if (identical(_shownChallenge, challenge) || challenge.isCompleted) {
+      return;
+    }
+    _shownChallenge = challenge;
+    unawaited(showHostKeySheet(context, challenge));
+  }
+
+  void _recordConnected() {
+    final at = ref.read(clockProvider)();
+    unawaited(() async {
+      try {
+        await ref
+            .read(serverListProvider.notifier)
+            .recordConnected(_server.id, at);
+      } catch (error) {
+        debugPrint('Could not record the connection time: $error');
+      }
+    }());
+  }
+
   Future<void> _ensureShell() async {
-    if (_opening || _shell != null || _shellExited) {
+    if (_opening || _shell != null || _shellExited || _shellError != null) {
       return;
     }
     final session = _session;
     if (session == null || !session.isConnected) {
       return;
     }
-    _opening = true;
+    setState(() => _opening = true);
     try {
       final columns = _terminal.viewWidth > 0 ? _terminal.viewWidth : 80;
       final rows = _terminal.viewHeight > 0 ? _terminal.viewHeight : 24;
@@ -174,10 +280,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
       unawaited(shell.done.then((_) => _onShellDone(shell)));
     } catch (error) {
       if (mounted) {
-        _terminal.write('\r\nCould not open a shell: $error\r\n');
+        _shellError = '$error';
       }
     } finally {
-      _opening = false;
+      if (mounted) {
+        setState(() => _opening = false);
+      }
     }
   }
 
@@ -191,8 +299,88 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
       // The connection dropped; a reconnect brings a new shell.
       return;
     }
-    _shellExited = true;
+    setState(() => _shellExited = true);
     _terminal.write('\r\n[session closed]\r\n');
+  }
+
+  Future<void> _retry() async {
+    final state = ref.read(sshSessionStateProvider(_args)).asData?.value;
+    if (state?.isConnected == true && _shellError != null) {
+      setState(() => _shellError = null);
+      await _ensureShell();
+      return;
+    }
+    await _refreshServer();
+    await _connect();
+  }
+
+  /// Picks up edits to the host. A changed address needs a new session,
+  /// since a session keeps the server it was made for.
+  Future<void> _refreshServer() async {
+    ServerConfig? latest;
+    try {
+      latest = await ref.read(vaultServiceProvider).getServer(_server.id);
+    } catch (error) {
+      debugPrint('Could not reload the host: $error');
+    }
+    if (!mounted || latest == null || latest == _server) {
+      return;
+    }
+    final updated = latest;
+    setState(() {
+      _server = updated;
+      _sessionId = const Uuid().v4();
+    });
+  }
+
+  Future<void> _editHost() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => ServerFormScreen(server: _server)),
+    );
+    await _refreshServer();
+  }
+
+  void _showDetails() {
+    unawaited(
+      showConnectionLogSheet(
+        context,
+        (_) => Consumer(
+          builder: (context, ref, _) => ConnectionLogView(
+            entries:
+                ref.watch(sshSessionLogProvider(_args)).asData?.value ??
+                const [],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showSnippets() {
+    unawaited(
+      showModalBottomSheet<void>(
+        context: context,
+        builder: (context) => const Padding(
+          padding: EdgeInsets.fromLTRB(24, 0, 24, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.code, color: AppColors.accent, size: 32),
+              SizedBox(height: 12),
+              Text(
+                'Snippets are coming soon',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'Save commands once and run them here with a tap.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.muted),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _trackPointer(PointerEvent event) {
@@ -203,6 +391,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     _pointers.remove(event.pointer);
     if (_pointers.length < 2) {
       _pinchStart = 0;
+      final size = _pinchFontSize;
+      if (size != null) {
+        _pinchFontSize = null;
+        unawaited(
+          ref
+              .read(appSettingsProvider.notifier)
+              .setHostFontSize(_server.id, size),
+        );
+      }
     }
   }
 
@@ -218,7 +415,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     _trackPointer(event);
     final span = _pointerSpan;
     if (span != null && span > 0) {
-      _pinchBase = _fontSize;
+      _pinchBase = _pinchFontSize ??
+          ref.read(appSettingsProvider).fontSizeFor(_server.id);
       _pinchStart = span;
     }
   }
@@ -230,7 +428,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
       return;
     }
     setState(() {
-      _fontSize = (_pinchBase * span / _pinchStart).clamp(8, 32);
+      _pinchFontSize = (_pinchBase * span / _pinchStart).clamp(8, 32);
     });
   }
 
@@ -297,6 +495,59 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     return KeyEventResult.handled;
   }
 
+  /// With "Volume keys" on: volume down arms CTRL, volume up sends ↑.
+  bool _onHardwareKey(KeyEvent event) {
+    if (!mounted || !ref.read(appSettingsProvider).volumeKeys) {
+      return false;
+    }
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) {
+      return false;
+    }
+    final key = event.logicalKey;
+    final down = key == LogicalKeyboardKey.audioVolumeDown;
+    if (!down && key != LogicalKeyboardKey.audioVolumeUp) {
+      return false;
+    }
+    if (event is KeyDownEvent) {
+      if (down) {
+        _modifiers.toggleCtrl();
+      } else {
+        _terminal.keyInput(TerminalKey.arrowUp);
+      }
+    } else if (event is KeyRepeatEvent && !down) {
+      _terminal.keyInput(TerminalKey.arrowUp);
+    }
+    return true;
+  }
+
+  bool get _isLive {
+    final state = ref.read(sshSessionStateProvider(_args)).asData?.value;
+    return state != null &&
+        (state.isConnected ||
+            state.status == SSHConnectionStatus.reconnecting);
+  }
+
+  /// Back and Disconnect. A live session asks first; anything else just
+  /// stops and leaves.
+  Future<void> _leave() async {
+    if (_isLive) {
+      await _confirmLeave();
+      return;
+    }
+    await ref.read(sshSessionControllerProvider(_args)).disconnect();
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _cancel() async {
+    await ref.read(sshSessionControllerProvider(_args)).disconnect();
+    if (mounted && !_wasConnected) {
+      Navigator.of(context).pop();
+    }
+  }
+
   Future<void> _confirmLeave() async {
     if (_confirmingLeave || !mounted) {
       return;
@@ -308,7 +559,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
         return AlertDialog(
           title: const Text('Disconnect?'),
           content: Text(
-            'Disconnect from ${widget.server.label} and close this terminal?',
+            'Disconnect from ${_server.label} and close this terminal?',
           ),
           actions: [
             TextButton(
@@ -336,21 +587,65 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     }
   }
 
-  static String _describe(SSHConnectionState state) {
-    return switch (state.status) {
-      SSHConnectionStatus.reconnecting when state.waitingFor != null =>
-        'Connection lost. Waiting for ${state.waitingFor} to reconnect.',
-      SSHConnectionStatus.reconnecting =>
-        'Connection lost. Reconnecting (attempt ${state.reconnectAttempt} of '
-            '${state.maxReconnectAttempts})...',
-      SSHConnectionStatus.disconnected => 'Disconnected.',
-      _ => state.errorMessage ?? state.toString(),
+  ConnectionCardModel? _cardModel(SSHConnectionState? state) {
+    final startError = _startError;
+    if (startError != null) {
+      return ConnectionCardModel.from(
+        state: SSHConnectionState.error(startError),
+        server: _server,
+      );
+    }
+    if (state == null) {
+      return _attempted
+          ? ConnectionCardModel.from(
+              state: const SSHConnectionState.connecting(
+                SSHConnectionStage.loadingCredentials,
+              ),
+              server: _server,
+            )
+          : null;
+    }
+    switch (state.status) {
+      case SSHConnectionStatus.connected:
+        if (_shell != null || _shellExited) {
+          return null;
+        }
+        return ConnectionCardModel.from(
+          state: state,
+          server: _server,
+          shellError: _shellError,
+          openingShell: _opening,
+        );
+      case SSHConnectionStatus.disconnected:
+        if (!_attempted && !_wasConnected) {
+          return null;
+        }
+        return ConnectionCardModel.from(state: state, server: _server);
+      default:
+        return ConnectionCardModel.from(
+          state: state,
+          server: _server,
+          wasConnected: _wasConnected,
+        );
+    }
+  }
+
+  static Color _statusColor(SSHConnectionState? state, bool attempted) {
+    return switch (state?.status) {
+      SSHConnectionStatus.connected => AppColors.accent,
+      SSHConnectionStatus.connecting ||
+      SSHConnectionStatus.awaitingHostKeyConfirmation ||
+      SSHConnectionStatus.reconnecting => AppColors.warn,
+      SSHConnectionStatus.error ||
+      SSHConnectionStatus.disconnected => AppColors.error,
+      null => attempted ? AppColors.warn : AppColors.muted,
     };
   }
 
   @override
   Widget build(BuildContext context) {
     final connection = ref.watch(sshSessionStateProvider(_args));
+    final settings = ref.watch(appSettingsProvider);
     final state = connection.asData?.value;
 
     ref.listen(sshSessionStateProvider(_args), (previous, next) {
@@ -358,9 +653,18 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     });
 
     final connected = state?.isConnected ?? false;
-    if (connected && _shell == null && !_opening && !_shellExited) {
+    if (connected &&
+        _shell == null &&
+        !_opening &&
+        !_shellExited &&
+        _shellError == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _ensureShell());
     }
+
+    final terminalTheme = settings.terminalTheme.theme;
+    final fontSize = _pinchFontSize ?? settings.fontSizeFor(_server.id);
+    final card = _cardModel(state);
+    final statusColor = _statusColor(state, _attempted);
 
     return PopScope(
       canPop: false,
@@ -368,72 +672,92 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
         if (didPop) {
           return;
         }
-        unawaited(_confirmLeave());
+        unawaited(_leave());
       },
       child: Scaffold(
-        backgroundColor: Colors.black,
+        backgroundColor: terminalTheme.background,
         resizeToAvoidBottomInset: true,
-        appBar: AppBar(
-          title: Text(widget.server.label),
-          actions: [
-            IconButton(
-              tooltip: 'Disconnect',
-              onPressed: () => unawaited(_confirmLeave()),
-              icon: const Icon(Icons.power_settings_new),
-            ),
-          ],
+        appBar: _TerminalBar(
+          server: _server,
+          statusColor: statusColor,
+          gridSize: _gridSize,
+          onBack: () => unawaited(_leave()),
+          onSnippets: _showSnippets,
+          onSettings: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
+          ),
+          onLog: _showDetails,
+          onDisconnect: () => unawaited(_leave()),
         ),
         body: Column(
           children: [
-            if (state != null && !connected)
-              Material(
-                color: Theme.of(context).colorScheme.errorContainer,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  child: Text(
-                    _describe(state),
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onErrorContainer,
-                    ),
-                  ),
-                ),
-              ),
+            _SessionTabs(server: _server, statusColor: statusColor),
             Expanded(
-              child: Listener(
-                behavior: HitTestBehavior.translucent,
-                onPointerDown: _onPointerDown,
-                onPointerMove: _onPointerMove,
-                onPointerUp: _endPointer,
-                onPointerCancel: _endPointer,
-                child: TerminalSelectionOverlay(
-                  terminal: _terminal,
-                  controller: _terminalController,
-                  scrollController: _scrollController,
-                  terminalViewKey: _terminalViewKey,
-                  onPaste: _pasteClipboard,
-                  // TerminalView pads itself by MediaQuery.padding; the
-                  // keyboard bar below already keeps clear of the system
-                  // navigation bar, so the terminal can use every row.
-                  child: MediaQuery.removePadding(
-                    context: context,
-                    removeBottom: true,
-                    child: TerminalView(
-                      _terminal,
-                      key: _terminalViewKey,
-                      controller: _terminalController,
-                      scrollController: _scrollController,
-                      focusNode: _focusNode,
-                      autofocus: true,
-                      deleteDetection: true,
-                      textStyle: TerminalStyle(fontSize: _fontSize),
-                      keyboardType: TextInputType.text,
-                      onKeyEvent: _onKeyEvent,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: Listener(
+                      behavior: HitTestBehavior.translucent,
+                      onPointerDown: _onPointerDown,
+                      onPointerMove: _onPointerMove,
+                      onPointerUp: _endPointer,
+                      onPointerCancel: _endPointer,
+                      child: TerminalSelectionOverlay(
+                        terminal: _terminal,
+                        controller: _terminalController,
+                        scrollController: _scrollController,
+                        terminalViewKey: _terminalViewKey,
+                        onPaste: _pasteClipboard,
+                        // TerminalView pads itself by MediaQuery.padding; the
+                        // keyboard bar below already keeps clear of the system
+                        // navigation bar, so the terminal can use every row.
+                        child: MediaQuery.removePadding(
+                          context: context,
+                          removeBottom: true,
+                          child: TerminalView(
+                            _terminal,
+                            key: _terminalViewKey,
+                            controller: _terminalController,
+                            scrollController: _scrollController,
+                            focusNode: _focusNode,
+                            autofocus: true,
+                            deleteDetection: true,
+                            theme: terminalTheme,
+                            cursorType: settings.cursor.type,
+                            textStyle: TerminalStyle(
+                              fontSize: fontSize,
+                              fontFamily: settings.font.fontFamily,
+                              fontFamilyFallback: const [
+                                ...AppFonts.fallback,
+                                'monospace',
+                              ],
+                            ),
+                            keyboardType: TextInputType.text,
+                            onKeyEvent: _onKeyEvent,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  if (card != null)
+                    Positioned(
+                      top: 12,
+                      left: 12,
+                      right: 12,
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 440),
+                          child: ConnectionCard(
+                            model: card,
+                            onCancel: () => unawaited(_cancel()),
+                            onDetails: _showDetails,
+                            onRetry: () => unawaited(_retry()),
+                            onEditHost: () => unawaited(_editHost()),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
             TerminalKeyboardBar(
@@ -444,6 +768,175 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
               onKey: _sendKey,
               onText: _sendText,
               onPaste: () => unawaited(_pasteClipboard()),
+              onSnippets: _showSnippets,
+              layout: settings.keyBar,
+              haptics: settings.haptics,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The 50px bar: back, status dot, host name, size, snippets and menu.
+class _TerminalBar extends StatelessWidget implements PreferredSizeWidget {
+  const _TerminalBar({
+    required this.server,
+    required this.statusColor,
+    required this.gridSize,
+    required this.onBack,
+    required this.onSnippets,
+    required this.onSettings,
+    required this.onLog,
+    required this.onDisconnect,
+  });
+
+  final ServerConfig server;
+  final Color statusColor;
+  final ValueListenable<(int, int)> gridSize;
+  final VoidCallback onBack;
+  final VoidCallback onSnippets;
+  final VoidCallback onSettings;
+  final VoidCallback onLog;
+  final VoidCallback onDisconnect;
+
+  @override
+  Size get preferredSize => const Size.fromHeight(AppSizes.terminalBar);
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.bar,
+      child: SafeArea(
+        bottom: false,
+        child: SizedBox(
+          height: AppSizes.terminalBar,
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: 'Back',
+                icon: const Icon(Icons.arrow_back),
+                onPressed: onBack,
+              ),
+              StatusDot(color: statusColor, size: 10),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  server.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.text,
+                  ),
+                ),
+              ),
+              ValueListenableBuilder<(int, int)>(
+                valueListenable: gridSize,
+                builder: (context, size, _) => Text(
+                  '${size.$1}×${size.$2}',
+                  key: const ValueKey('terminal-grid-size'),
+                  style: const TextStyle(
+                    fontFamily: AppFonts.mono,
+                    fontSize: 12,
+                    color: AppColors.muted,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Snippets',
+                icon: const Icon(Icons.code),
+                onPressed: onSnippets,
+              ),
+              PopupMenuButton<String>(
+                tooltip: 'More',
+                icon: const Icon(Icons.more_vert),
+                onSelected: (value) => switch (value) {
+                  'settings' => onSettings(),
+                  'log' => onLog(),
+                  _ => onDisconnect(),
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(
+                    value: 'settings',
+                    child: ListTile(
+                      leading: Icon(Icons.tune),
+                      title: Text('Settings'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'log',
+                    child: ListTile(
+                      leading: Icon(Icons.receipt_long),
+                      title: Text('Connection log'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'disconnect',
+                    child: ListTile(
+                      leading: Icon(
+                        Icons.power_settings_new,
+                        color: AppColors.error,
+                      ),
+                      title: Text(
+                        'Disconnect',
+                        style: TextStyle(color: AppColors.error),
+                      ),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The row of session tabs under the bar. One session per screen for now;
+/// several come with multiple sessions.
+class _SessionTabs extends StatelessWidget {
+  const _SessionTabs({required this.server, required this.statusColor});
+
+  final ServerConfig server;
+  final Color statusColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 40,
+      decoration: const BoxDecoration(
+        color: AppColors.bar,
+        border: Border(bottom: BorderSide(color: AppColors.border)),
+      ),
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadii.key),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            StatusDot(color: statusColor),
+            const SizedBox(width: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 200),
+              child: Text(
+                server.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13, color: AppColors.text),
+              ),
             ),
           ],
         ),

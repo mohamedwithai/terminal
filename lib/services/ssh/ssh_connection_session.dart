@@ -9,6 +9,7 @@ import 'package:ssh_app/models/server_config.dart';
 import 'package:ssh_app/models/server_credentials.dart';
 import 'package:ssh_app/services/ssh/connection_log.dart';
 import 'package:ssh_app/services/ssh/host_key_verifier.dart';
+import 'package:ssh_app/services/ssh/pausable_deadline.dart';
 import 'package:ssh_app/services/ssh/reconnect_gate.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_state.dart';
 import 'package:ssh_app/services/ssh/ssh_errors.dart';
@@ -49,8 +50,8 @@ class SSHConnectionSession {
   final Duration connectTimeout;
 
   /// One limit for everything after the TCP connection opens: key exchange,
-  /// host key verification (including the time the user takes to accept an
-  /// unknown key), and authentication.
+  /// host key verification and authentication. It stops counting while the
+  /// user decides on an unknown host key.
   final Duration handshakeTimeout;
 
   /// Limit for reading the credentials from secure storage.
@@ -210,12 +211,14 @@ class SSHConnectionSession {
     }
     log.add('TCP connection open');
 
-    // 3. Key exchange, host key check and authentication share one limit
+    // 3. Key exchange, host key check and authentication share one limit,
+    // which pauses while the user decides on an unknown host key.
     _enterStage(attempt, SSHConnectionStage.exchangingKeys);
     log.add(
       'Exchanging keys (limit ${_formatDuration(handshakeTimeout)} for key '
-      'exchange, host key and sign-in together)',
+      'exchange and sign-in; it pauses while you check a new host key)',
     );
+    final deadline = PausableDeadline(handshakeTimeout);
 
     SSHHostKeyChangedException? hostKeyChangedError;
     Object? hostKeyCheckError;
@@ -262,7 +265,13 @@ class SSHConnectionSession {
                 'reject it; sign-in waits until then.',
               );
               _emit(SSHConnectionState.awaitingHostKeyConfirmation(challenge));
-              final decision = await challenge.decision;
+              deadline.pause();
+              final bool decision;
+              try {
+                decision = await challenge.decision;
+              } finally {
+                deadline.resume();
+              }
               if (identical(_pendingChallenge, challenge)) {
                 _pendingChallenge = null;
               }
@@ -297,8 +306,15 @@ class SSHConnectionSession {
 
     // 4. Wait for authentication
     try {
-      await client.authenticated.timeout(handshakeTimeout);
+      final timedOut = await Future.any<bool>([
+        client.authenticated.then((_) => false),
+        deadline.expired.then((_) => true),
+      ]);
+      if (timedOut) {
+        throw TimeoutException('SSH handshake', handshakeTimeout);
+      }
     } catch (e) {
+      deadline.cancel();
       settled = true;
       final waitingForUser = _pendingChallenge != null;
       if (_isCurrent(attempt)) {
@@ -331,6 +347,7 @@ class SSHConnectionSession {
       throw _mapHandshakeException(e);
     }
 
+    deadline.cancel();
     settled = true;
     if (identical(_connectingClient, client)) {
       _connectingClient = null;
