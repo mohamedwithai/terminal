@@ -24,7 +24,9 @@ Tests that need more setup:
   `flutter test --tags live --run-skipped test/ssh_live_integration_test.dart`
 - **Device integration test** (`integration_test/credential_vault_test.dart`). It exercises the real Keystore/Keychain, so it must run on a device or emulator: `flutter test integration_test/credential_vault_test.dart -d <device>`.
 
-CI (`.github/workflows/android-apk.yml`) runs on every push to `main` and on manual dispatch. It runs pub get, analyze, test, `flutter build apk --debug` and `flutter build apk --release` (signed with the debug key) on Flutter 3.47.7, then uploads the APKs as the `ssh-app-debug` and `ssh-app-release` artifacts.
+CI (`.github/workflows/android-apk.yml`) runs on every push to `main` and on manual dispatch. It runs pub get, analyze, test, `flutter build apk --debug` and `flutter build apk --release` on Flutter 3.47.7, then uploads the APKs as the `ssh-app-debug` and `ssh-app-release` artifacts.
+
+Release signing (`docs/SIGNING.md`): CI decodes the `KEYSTORE_BASE64` secret into `$RUNNER_TEMP` and writes `android/key.properties` (`storeFile`, `storePassword`, `keyAlias`, `keyPassword`), which `android/app/build.gradle.kts` reads. Without that file, release builds use the debug key, as `flutter run --release` does locally. CI fails if a signing secret is missing or the release APK is debug-signed. Never commit keystores, `key.properties` or passwords; `.gitignore` excludes them.
 
 ## Architecture
 

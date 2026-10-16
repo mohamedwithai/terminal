@@ -34,6 +34,7 @@ then work stops for a phone test. The next milestone starts on "next".
    otherwise uses debug signing.
 3. Workflow: decode the secret, write `key.properties`, sign the release.
 4. Never commit the keystore or passwords; add them to `.gitignore`.
+   *(done, see docs/SIGNING.md)*
 
 Stop before pushing B until the secrets are confirmed as added.
 

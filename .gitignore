@@ -46,3 +46,11 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Release signing (docs/SIGNING.md): never commit the keystore, its base64
+# copy or its passwords, wherever they end up.
+key.properties
+*.jks
+*.jks.base64
+*.keystore
+keystore-password.txt

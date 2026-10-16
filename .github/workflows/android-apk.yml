@@ -37,9 +37,48 @@ jobs:
 
       - run: flutter build apk --debug
 
-      # Release builds are signed with the debug key for now; see
-      # android/app/build.gradle.kts.
+      # The release APK is signed with the upload key from the repository
+      # secrets, so each build installs over the last one. See
+      # docs/SIGNING.md. The keystore is written outside the checkout and
+      # removed at the end.
+      - name: Set up release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Repository secret $name is not set. See docs/SIGNING.md."
+              exit 1
+            fi
+          done
+          keystore="$RUNNER_TEMP/upload-keystore.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          {
+            echo "storeFile=$keystore"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > android/key.properties
+
       - run: flutter build apk --release
+
+      # Compare the SHA-256 printed here with the one from keytool -list.
+      - name: Check the release signing certificate
+        run: |
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)
+          certs=$("$apksigner" verify --print-certs build/app/outputs/flutter-apk/app-release.apk)
+          echo "$certs" | grep -E 'certificate (DN|SHA-256 digest)'
+          if echo "$certs" | grep -q 'CN=Android Debug'; then
+            echo "::error::The release APK is signed with the debug key."
+            exit 1
+          fi
+
+      - name: Remove the signing files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload-keystore.jks" android/key.properties
 
       - uses: actions/upload-artifact@v7
         with:
