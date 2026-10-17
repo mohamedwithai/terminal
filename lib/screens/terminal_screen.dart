@@ -17,6 +17,7 @@ import 'package:ssh_app/providers/ssh_providers.dart';
 import 'package:ssh_app/providers/vault_providers.dart';
 import 'package:ssh_app/screens/pty_resize.dart';
 import 'package:ssh_app/models/snippet.dart';
+import 'package:ssh_app/screens/files/sftp_browser_screen.dart';
 import 'package:ssh_app/screens/server_form_screen.dart';
 import 'package:ssh_app/screens/snippets/run_sheet.dart';
 import 'package:ssh_app/screens/snippets/snippet_picker_sheet.dart';
@@ -968,6 +969,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
         ).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen())),
         onLog: _showDetails,
         onIntegration: () => unawaited(_installShellIntegration()),
+        onFiles: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => SftpBrowserScreen(server: _server, reuse: _session),
+          ),
+        ),
         onDisconnect: () => unawaited(_leave()),
       ),
       body: Column(
@@ -1122,6 +1128,7 @@ class _TerminalBar extends StatelessWidget implements PreferredSizeWidget {
     required this.onSettings,
     required this.onLog,
     required this.onIntegration,
+    required this.onFiles,
     required this.onDisconnect,
   });
 
@@ -1133,6 +1140,7 @@ class _TerminalBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback onSettings;
   final VoidCallback onLog;
   final VoidCallback onIntegration;
+  final VoidCallback onFiles;
   final VoidCallback onDisconnect;
 
   @override
@@ -1191,6 +1199,7 @@ class _TerminalBar extends StatelessWidget implements PreferredSizeWidget {
                   'settings' => onSettings(),
                   'log' => onLog(),
                   'integration' => onIntegration(),
+                  'files' => onFiles(),
                   _ => onDisconnect(),
                 },
                 itemBuilder: (context) => const [
@@ -1207,6 +1216,14 @@ class _TerminalBar extends StatelessWidget implements PreferredSizeWidget {
                     child: ListTile(
                       leading: Icon(Icons.receipt_long),
                       title: Text('Connection log'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'files',
+                    child: ListTile(
+                      leading: Icon(Icons.folder_outlined),
+                      title: Text('Browse files'),
                       contentPadding: EdgeInsets.zero,
                     ),
                   ),

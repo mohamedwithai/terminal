@@ -266,7 +266,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Files'));
       await tester.pumpAndSettle();
-      expect(find.text('Coming soon'), findsOneWidget);
+      expect(
+        find.text('Browse, upload and download files over SFTP.'),
+        findsOneWidget,
+      );
     });
   });
 }

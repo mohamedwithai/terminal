@@ -151,7 +151,7 @@ Tamil as a fallback.
 2. The notification shows the count ("2 SSH sessions active").
 3. Close one session without affecting the others.
 
-## Milestone G: SFTP file browser
+## Milestone G: SFTP file browser *(done)*
 
 1. Per server: browse directories, sort, go up, refresh.
 2. Download to the phone, upload from the phone (file picker), with progress

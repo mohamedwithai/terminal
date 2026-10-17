@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ssh_app/providers/session_tabs_providers.dart';
-import 'package:ssh_app/screens/coming_soon_screen.dart';
+import 'package:ssh_app/screens/files/files_screen.dart';
 import 'package:ssh_app/screens/hosts_screen.dart';
 import 'package:ssh_app/screens/keys/keys_screen.dart';
 import 'package:ssh_app/screens/snippets/snippets_screen.dart';
@@ -41,11 +41,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             HostsScreen(),
             KeysScreen(),
             SnippetsScreen(),
-            ComingSoonScreen(
-              title: 'Files',
-              icon: Icons.folder_outlined,
-              message: 'Browse, upload and download files over SFTP.',
-            ),
+            FilesScreen(),
             TerminalWorkspace(),
           ],
         ),

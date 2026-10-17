@@ -145,7 +145,7 @@ Phone checklist for E:
 5. Pick a file to import a key: the app must not lock on return.
 6. Turn the lock off with the PIN; change the PIN.
 
-## Milestone F: multiple sessions
+## Milestone F: multiple sessions (1f149ee, CI run #14, green)
 Several sessions at once, to the same or different hosts. A tab bar under the
 terminal bar (status dot, host name, numbered when a host is open twice, close
 button, + for a new session) switches between them; every tab keeps its own
@@ -173,3 +173,42 @@ Phone checklist for F:
 3. + in the tab bar, pick the same host: tabs "Name 1" and "Name 2".
 4. Close one tab (x): only it disconnects; the other keeps running.
 5. Pull the notification shade: "2 SSH sessions active".
+
+## Milestone G: SFTP file browser
+The Files tab lists your hosts; "Browse files" is also in a terminal's menu. A
+host with an open terminal is browsed over that session's connection (the
+connection stays open when you leave); otherwise the browser makes its own and
+closes it. Browse folders (path trail, Up, refresh, Back goes up first), sort by
+name, size or modified (folders first; tap again to reverse), new folder, rename,
+delete (a folder says how many items it holds), download (system "save as", or
+the share sheet for files over 48 MB), upload several files (asks before
+replacing), with progress and Cancel for each transfer.
+
+Verified against a real SFTP server (a throwaway unprivileged sshd on
+127.0.0.1:2222 with a temp key, removed afterwards): 9 live tests cover
+byte-exact 700 KB upload and download with progress, rename, recursive delete,
+a unicode filename with spaces and parentheses, cancelling an upload (no
+partial file left) and a download, readable errors, the opener refusing an
+unknown host key, and the opener on a trusted host opening its own connection
+or sharing a terminal's without closing it.
+
+Found and fixed on the way: the Upload button floated over the transfers panel's
+Cancel and Dismiss buttons; a remote file named `..` would have resolved to the
+scratch folder's parent (now `file`).
+
+Decisions and limits:
+- Not supported: folder download or upload, resume, chmod, symlink creation.
+- Unknown host keys are refused (same as snippet runs): trust the host in a
+  terminal first.
+- Downloads over 48 MB go through the share sheet instead of "save as", since
+  "save as" needs the bytes in memory.
+- Rename fails where the server refuses to overwrite an existing name.
+
+Phone checklist for G:
+1. Files tab, pick a host: its home folder lists, folders first.
+2. Open a folder, use the path trail and Up; Back goes up a folder.
+3. Sort by size; tap again to reverse.
+4. Upload a photo; upload it again (it asks to replace).
+5. Download it (save as); try a big file and Cancel halfway.
+6. New folder, rename, delete a folder with files (it warns with the count).
+7. With a terminal open to that host, Files uses its connection (no second login).

@@ -12,6 +12,7 @@ class TextPromptDialog extends StatefulWidget {
     this.initialText = '',
     this.maxLength,
     this.hint,
+    this.validator,
   });
 
   final String title;
@@ -20,6 +21,10 @@ class TextPromptDialog extends StatefulWidget {
   final int? maxLength;
   final String? hint;
 
+  /// Returns a message to show instead of closing, or null if the text is
+  /// fine.
+  final String? Function(String text)? validator;
+
   static Future<String?> show(
     BuildContext context, {
     required String title,
@@ -27,6 +32,7 @@ class TextPromptDialog extends StatefulWidget {
     String initialText = '',
     int? maxLength,
     String? hint,
+    String? Function(String text)? validator,
   }) {
     return showDialog<String>(
       context: context,
@@ -36,6 +42,7 @@ class TextPromptDialog extends StatefulWidget {
         initialText: initialText,
         maxLength: maxLength,
         hint: hint,
+        validator: validator,
       ),
     );
   }
@@ -46,6 +53,17 @@ class TextPromptDialog extends StatefulWidget {
 
 class _TextPromptDialogState extends State<TextPromptDialog> {
   late final _controller = TextEditingController(text: widget.initialText);
+  String? _error;
+
+  void _submit() {
+    final text = _controller.text;
+    final problem = widget.validator?.call(text);
+    if (problem != null) {
+      setState(() => _error = problem);
+      return;
+    }
+    Navigator.of(context).pop(text);
+  }
 
   @override
   void dispose() {
@@ -61,18 +79,18 @@ class _TextPromptDialogState extends State<TextPromptDialog> {
         controller: _controller,
         autofocus: true,
         maxLength: widget.maxLength,
-        decoration: InputDecoration(hintText: widget.hint),
-        onSubmitted: (value) => Navigator.of(context).pop(value),
+        decoration: InputDecoration(hintText: widget.hint, errorText: _error),
+        onChanged: (_) {
+          if (_error != null) setState(() => _error = null);
+        },
+        onSubmitted: (_) => _submit(),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(_controller.text),
-          child: Text(widget.confirmLabel),
-        ),
+        FilledButton(onPressed: _submit, child: Text(widget.confirmLabel)),
       ],
     );
   }
