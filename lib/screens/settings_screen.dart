@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ssh_app/models/app_settings.dart';
+import 'package:ssh_app/screens/lock_settings.dart';
 import 'package:ssh_app/providers/autocomplete_providers.dart';
 import 'package:ssh_app/providers/preferences_providers.dart';
 import 'package:ssh_app/providers/vault_providers.dart';
@@ -189,22 +190,8 @@ class SettingsScreen extends ConsumerWidget {
             ],
           ),
           const _Header('Security'),
-          const _SwitchCard(
-            children: [
-              SwitchListTile(
-                title: Text('App lock'),
-                subtitle: Text('Fingerprint, face or PIN. Coming soon.'),
-                value: false,
-                onChanged: null,
-              ),
-              Divider(),
-              ListTile(
-                enabled: false,
-                title: Text('Lock after'),
-                trailing: Text('Immediately'),
-              ),
-            ],
-          ),
+          const AppLockSettings(),
+          const AppLockNote(),
           const _Header('About'),
           _SwitchCard(
             children: [

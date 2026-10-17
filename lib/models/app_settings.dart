@@ -27,6 +27,18 @@ enum CursorShape {
   final TerminalCursorType type;
 }
 
+/// How long the app may be out of the foreground before it locks.
+enum LockTimeout {
+  immediately('Immediately', Duration.zero),
+  oneMinute('After 1 minute', Duration(minutes: 1)),
+  fiveMinutes('After 5 minutes', Duration(minutes: 5));
+
+  const LockTimeout(this.label, this.duration);
+
+  final String label;
+  final Duration duration;
+}
+
 enum KeyBarLayout {
   twoRows('2 rows'),
   oneRow('1 row');
@@ -53,6 +65,9 @@ class AppSettings {
     this.completeHistory = true,
     this.completeSnippets = true,
     this.completeCommon = true,
+    this.appLock = false,
+    this.lockTimeout = LockTimeout.immediately,
+    this.lockBiometrics = false,
   });
 
   static const defaultFontSize = 14.0;
@@ -97,6 +112,13 @@ class AppSettings {
       volumeKeys: json['volumeKeys'] == true,
       haptics: json['haptics'] != false,
       hostFontSizes: sizes,
+      appLock: json['appLock'] == true,
+      lockTimeout: pick(
+        LockTimeout.values,
+        json['lockTimeout'],
+        LockTimeout.immediately,
+      ),
+      lockBiometrics: json['lockBiometrics'] == true,
       autocomplete: json['autocomplete'] != false,
       completePaths: json['completePaths'] != false,
       completeHistory: json['completeHistory'] != false,
@@ -136,6 +158,14 @@ class AppSettings {
   final bool completeSnippets;
   final bool completeCommon;
 
+  /// The app asks for a PIN (or fingerprint or face) on start and after
+  /// [lockTimeout] in the background. The PIN itself is in secure storage.
+  final bool appLock;
+  final LockTimeout lockTimeout;
+
+  /// Unlock with fingerprint or face as well as the PIN.
+  final bool lockBiometrics;
+
   double fontSizeFor(String serverId) => hostFontSizes[serverId] ?? fontSize;
 
   static double _clampSize(double size) =>
@@ -156,6 +186,9 @@ class AppSettings {
     bool? completeHistory,
     bool? completeSnippets,
     bool? completeCommon,
+    bool? appLock,
+    LockTimeout? lockTimeout,
+    bool? lockBiometrics,
   }) {
     return AppSettings(
       terminalTheme: terminalTheme ?? this.terminalTheme,
@@ -172,6 +205,9 @@ class AppSettings {
       completeHistory: completeHistory ?? this.completeHistory,
       completeSnippets: completeSnippets ?? this.completeSnippets,
       completeCommon: completeCommon ?? this.completeCommon,
+      appLock: appLock ?? this.appLock,
+      lockTimeout: lockTimeout ?? this.lockTimeout,
+      lockBiometrics: lockBiometrics ?? this.lockBiometrics,
     );
   }
 
@@ -191,6 +227,9 @@ class AppSettings {
       'completeHistory': completeHistory,
       'completeSnippets': completeSnippets,
       'completeCommon': completeCommon,
+      'appLock': appLock,
+      'lockTimeout': lockTimeout.name,
+      'lockBiometrics': lockBiometrics,
     };
   }
 }

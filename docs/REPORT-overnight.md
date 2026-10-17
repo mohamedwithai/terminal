@@ -91,7 +91,7 @@ Phone checklist for D:
 6. Tick a host under "Run automatically on connect" with `tmux new -A -s main`.
 7. Export, delete, import.
 
-## Milestone I: autocomplete
+## Milestone I: autocomplete (88b0a2f, CI run #12, green)
 Shell integration (OSC 133 / OSC 7) with a one-tap install from the terminal
 menu (a visible, confirmed, base64 one-liner that appends to `~/.bashrc` or
 `~/.zshrc` once; the script was tested against real bash and zsh), parsing of
@@ -116,3 +116,31 @@ Phone checklist for I:
 3. Terminal menu, Shell integration, Install; open a new shell. `cd ` then lists folders.
 4. `sudo ls` and type the password: it must not appear in suggestions later.
 5. Settings, Autocomplete: switch sources off; Clear history for the host.
+
+## Milestone E: app lock
+PIN (4 to 12 digits; salted PBKDF2-SHA256 hash, never the PIN, in secure
+storage), optional fingerprint or face (`local_auth`, biometrics only), lock on
+start and after "Immediately / 1 minute / 5 minutes" in the background,
+`FLAG_SECURE` while on (hidden in recent apps, no screenshots), a lock screen
+with a PIN pad, escalating waits after five wrong tries that survive a restart,
+and Settings to turn it on (PIN twice, then optional fingerprint, confirmed once
+before it is relied on), turn it off (needs the PIN), change the PIN, and pick
+the timeout.
+
+Decisions and limits:
+- The lock covers the app UI; open SSH sessions stay connected while locked.
+- Forgot the PIN: clear the app's data (no recovery, by design).
+- Returning from the file picker or share sheet does not lock, even with
+  "Immediately".
+- A lock whose PIN vanished from secure storage is switched off, not trusted.
+- Screenshots are blocked while the lock is on (a side effect of FLAG_SECURE).
+- The Kotlin and manifest changes (FlutterFragmentActivity, USE_BIOMETRIC,
+  AppCompat themes, window channel) are verified only by the CI build.
+
+Phone checklist for E:
+1. Settings, Security, App lock: set a PIN; accept fingerprint if offered.
+2. Press Home: recent apps shows a blank card (FLAG_SECURE). Reopen: lock screen.
+3. Wrong PIN five times: it makes you wait; force-stop and reopen: still waiting.
+4. Set "After 1 minute": leave for 30 s (opens), then 70 s (locks).
+5. Pick a file to import a key: the app must not lock on return.
+6. Turn the lock off with the PIN; change the PIN.

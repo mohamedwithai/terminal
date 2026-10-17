@@ -12,6 +12,8 @@
     <!-- Its notification, on Android 13 and later. Requested at the first
          connect. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Fingerprint or face unlock for the app lock (local_auth). -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
     <application
         android:label="SSH"
         android:name="${applicationName}"

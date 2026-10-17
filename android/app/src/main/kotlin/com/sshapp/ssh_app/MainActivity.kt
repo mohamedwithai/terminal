@@ -7,12 +7,15 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import io.flutter.embedding.android.FlutterActivity
+import android.view.WindowManager
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity() {
+// local_auth shows its prompt through a FragmentActivity.
+class MainActivity : FlutterFragmentActivity() {
     private var channel: MethodChannel? = null
+    private var windowChannel: MethodChannel? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -41,6 +44,22 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        // FLAG_SECURE hides the app in the recent-apps screen and blocks
+        // screenshots. Flutter turns it on while the app lock is enabled.
+        val window = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WINDOW_CHANNEL)
+        window.setMethodCallHandler { call, result ->
+            if (call.method == "setSecure") {
+                if (call.argument<Boolean>("secure") == true) {
+                    getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                } else {
+                    getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
+                result.success(null)
+            } else {
+                result.notImplemented()
+            }
+        }
+        windowChannel = window
         SessionForegroundService.onDisconnectRequested = {
             channel.invokeMethod("disconnectAll", null)
         }
@@ -51,6 +70,8 @@ class MainActivity : FlutterActivity() {
         SessionForegroundService.onDisconnectRequested = null
         channel?.setMethodCallHandler(null)
         channel = null
+        windowChannel?.setMethodCallHandler(null)
+        windowChannel = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 
@@ -114,6 +135,7 @@ class MainActivity : FlutterActivity() {
 
     private companion object {
         const val CHANNEL = "ssh_app/session_foreground_service"
+        const val WINDOW_CHANNEL = "ssh_app/window"
         const val NOTIFICATION_PERMISSION_REQUEST = 4201
     }
 }

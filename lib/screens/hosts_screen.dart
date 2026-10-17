@@ -607,8 +607,9 @@ class _LoadError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A long message scrolls instead of overflowing.
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,

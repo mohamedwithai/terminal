@@ -137,7 +137,7 @@ Tamil as a fallback.
 - **I5 Tests:** ranking, the history filter, OSC 133/7 parsing, the
   fallback mode.
 
-## Milestone E: app lock
+## Milestone E: app lock *(done)*
 
 1. Optional lock with fingerprint/face (`local_auth`) and a PIN fallback.
    Settings screen with on/off and a timeout (immediately / 1 min / 5 min).

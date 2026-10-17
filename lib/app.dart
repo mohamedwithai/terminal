@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ssh_app/providers/session_keeper_providers.dart';
+import 'package:ssh_app/screens/app_lock_gate.dart';
 import 'package:ssh_app/screens/home_screen.dart';
 import 'package:ssh_app/services/session_keeper.dart';
 import 'package:ssh_app/theme/app_theme.dart';
@@ -21,6 +22,8 @@ class SshApp extends StatelessWidget {
       theme: AppTheme.dark(),
       themeMode: ThemeMode.dark,
       scaffoldMessengerKey: rootScaffoldMessengerKey,
+      builder: (context, child) =>
+          AppLockGate(child: child ?? const SizedBox()),
       home: const HomeScreen(),
     );
   }

@@ -8,6 +8,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ssh_app/models/server_config.dart';
+import 'package:ssh_app/providers/app_lock_providers.dart';
 import 'package:ssh_app/providers/autocomplete_providers.dart';
 import 'package:ssh_app/providers/preferences_providers.dart';
 import 'package:ssh_app/providers/snippet_providers.dart';
@@ -715,7 +716,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
 
   /// With "Volume keys" on: volume down arms CTRL, volume up sends ↑.
   bool _onHardwareKey(KeyEvent event) {
-    if (!mounted || !ref.read(appSettingsProvider).volumeKeys) {
+    if (!mounted ||
+        !ref.read(appSettingsProvider).volumeKeys ||
+        ref.read(appLockProvider).locked) {
       return false;
     }
     final route = ModalRoute.of(context);

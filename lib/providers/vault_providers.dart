@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:ssh_app/models/ssh_key_record.dart';
+import 'package:ssh_app/providers/app_lock_providers.dart';
 import 'package:ssh_app/providers/preferences_providers.dart';
 import 'package:ssh_app/services/ssh_key_material.dart';
 import 'package:ssh_app/models/known_host.dart';
@@ -170,10 +171,10 @@ class KeyListNotifier extends AsyncNotifier<List<SshKeyRecord>> {
 /// Opens the system file picker and returns the chosen file's text, or null
 /// if nothing was chosen. Tests replace it.
 final keyFilePickerProvider = Provider<Future<String?> Function()>((ref) {
-  return () async {
-    final files = await FilePicker.pickFiles(
-      dialogTitle: 'Choose a private key',
-    );
+  // The picker is another screen, which must not count as leaving the app
+  // (that would lock it on return).
+  return () => ref.read(appLockProvider.notifier).runExternal(() async {
+    final files = await FilePicker.pickFiles(dialogTitle: 'Choose a file');
     if (files.isEmpty) {
       return null;
     }
@@ -188,15 +189,17 @@ final keyFilePickerProvider = Provider<Future<String?> Function()>((ref) {
         'This file is not text, so it cannot be an OpenSSH or PEM key.',
       );
     }
-  };
+  });
 });
 
 /// Opens the system share sheet with [text]. Tests replace it.
 final shareTextProvider =
     Provider<Future<void> Function(String text, String subject)>((ref) {
-      return (text, subject) async {
-        await SharePlus.instance.share(
-          ShareParams(text: text, subject: subject),
-        );
-      };
+      return (text, subject) => ref
+          .read(appLockProvider.notifier)
+          .runExternal(
+            () => SharePlus.instance.share(
+              ShareParams(text: text, subject: subject),
+            ),
+          );
     });
