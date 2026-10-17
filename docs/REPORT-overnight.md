@@ -1,5 +1,23 @@
 # Overnight report
 
+Final state: every milestone of the roadmap is built, pushed and green in CI,
+except the app icon and splash (waiting for a name). Nothing here has been
+tried on a phone yet; each section has a checklist for that.
+
+| Milestone | Commit | CI |
+| --- | --- | --- |
+| Roadmap update | `9866767` | [#7](https://github.com/mohamedwithai/terminal/actions/runs/38952172754) |
+| H: design system, hosts, connect card, key bar, settings | `a89eb7a` | [#8](https://github.com/mohamedwithai/terminal/actions/runs/38995842305) |
+| C: SSH keys | `8447eda` | [#9](https://github.com/mohamedwithai/terminal/actions/runs/39000625089) |
+| H leftovers: tag picker, goldens | `34f209b` | [#10](https://github.com/mohamedwithai/terminal/actions/runs/39002036750) |
+| D: snippets and automation | `59cbe90` | [#11](https://github.com/mohamedwithai/terminal/actions/runs/39002973765) |
+| I: autocomplete | `88b0a2f` | [#12](https://github.com/mohamedwithai/terminal/actions/runs/39003873686) |
+| E: app lock | `182503c` | [#13](https://github.com/mohamedwithai/terminal/actions/runs/39004743091) |
+| F: multiple sessions | `1f149ee` | [#14](https://github.com/mohamedwithai/terminal/actions/runs/39005477147) |
+| G: SFTP file browser | `690e67a` | [#15](https://github.com/mohamedwithai/terminal/actions/runs/39018482341) |
+
+Earlier milestones (A, B) are in `docs/ROADMAP.md` and `docs/SIGNING.md`.
+
 ## Done and on `main` (CI green)
 - Roadmap update: 9866767 (new order A, B, H, C, D, I, E, F, G; H, new D, I added).
 
@@ -174,7 +192,7 @@ Phone checklist for F:
 4. Close one tab (x): only it disconnects; the other keeps running.
 5. Pull the notification shade: "2 SSH sessions active".
 
-## Milestone G: SFTP file browser
+## Milestone G: SFTP file browser (690e67a, CI run #15, green)
 The Files tab lists your hosts; "Browse files" is also in a terminal's menu. A
 host with an open terminal is browsed over that session's connection (the
 connection stays open when you leave); otherwise the browser makes its own and
@@ -212,3 +230,26 @@ Phone checklist for G:
 5. Download it (save as); try a big file and Cancel halfway.
 6. New folder, rename, delete a folder with files (it warns with the count).
 7. With a terminal open to that host, Files uses its connection (no second login).
+
+## Open questions
+- Should the Light terminal theme also switch the rest of the app to light, or
+  only the terminal? (Today only the terminal.)
+- App name: pick one of Burrow, Tether or Shellpad (or another) and I will do
+  the icon and splash. The package id stays `com.sshapp.ssh_app`.
+- Tabs live only while the app process lives. Should open sessions be restored
+  after the app is killed (reconnecting, not the old screen)?
+- Snippet exit codes need a POSIX shell (not fish). Is that acceptable, or
+  should fish get its own marker?
+- Files over 48 MB are saved through the share sheet. Is that fine, or should
+  large downloads stream to a folder you choose?
+
+## Housekeeping notes
+- No secrets were added or changed. `~/ssh-app-signing` and the GitHub secrets
+  were not touched. No history was rewritten and nothing was force-pushed.
+- While cleaning up after the live SFTP test I ran a `sed -i` on
+  `~/.ssh/known_hosts` that matched nothing; the file still has its 4 entries.
+- The Android native code (foreground service, notifications, FragmentActivity,
+  AppCompat themes, FLAG_SECURE window channel, biometric prompt) is verified
+  only by the CI builds compiling, not by running on a device.
+- Test totals at the end: 331 pass locally, plus 9 live SFTP tests that ran
+  against a throwaway sshd (skipped by default).
