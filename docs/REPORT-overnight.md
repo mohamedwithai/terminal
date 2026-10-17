@@ -1,38 +1,25 @@
-# Overnight report (stopped early: usage limit)
+# Overnight report
 
 ## Done and on `main` (CI green)
 - Roadmap update: 9866767 (new order A, B, H, C, D, I, E, F, G; H, new D, I added).
 
-## Milestone H: in progress, on branch `wip/milestone-h` (not merged, CI not run)
-Done in code (`flutter analyze lib` clean, test suite NOT yet updated):
+## Milestone H: code and tests done, merged to `main`
+Analyze clean, 132 tests pass (the old status-screen tests were replaced by
+tests of the card, the sheet, the deadline and the Hosts screen).
 - Design tokens (`lib/theme/tokens.dart`), dark theme from tokens, 4 terminal
-  themes (Ink, Dracula, One Dark, Light).
-- Bundled fonts with OFL licenses: IBM Plex Sans, JetBrains Mono, Noto Sans
-  Tamil (`assets/fonts/`, registered on the licenses page).
-- H1: Home with bottom nav (Hosts / Keys / Snippets / Files; the last three
-  are "coming soon"), Hosts screen with letter avatars, search, tag chips,
-  "Active now", last connected + auth type, FAB "New host". `ServerConfig`
-  gained `tags` and `lastConnectedAt` (backward compatible JSON).
-- H2: host key bottom sheet (4-char groups, copy, "How do I check?" with the
-  matching `ssh-keygen -lf` command). The handshake limit now pauses while
-  the sheet is open (`PausableDeadline`).
-- H3: connecting card over the terminal (5 segments, Cancel/Details, plain
-  error sentence with Edit host / Retry, log under Details). The old
-  SSHStatusScreen and its test were removed; tapping a host opens the
-  terminal directly.
-- H4: 50px terminal bar, session tab row, 2x8 key bar with 2 pages (or 1-row
-  mode), modifier hint line, haptics, optional volume keys.
-- H5: Settings screen (theme cards + live preview, font, size, cursor, key
-  bar rows, volume keys, haptics; app lock shown disabled until milestone E).
+  themes (Ink, Dracula, One Dark, Light), bundled fonts with OFL licenses.
+- H1 Hosts + bottom nav (Keys / Snippets / Files are "coming soon").
+  `ServerConfig` gained `tags` and `lastConnectedAt`.
+- H2 host key sheet; the handshake limit pauses while it is open.
+- H3 connecting card over the terminal (replaces the status screen).
+- H4 terminal bar, tab row, paged 2x8 key bar, hint line, haptics, volume keys.
+- H5 Settings screen with live theme preview. App lock is shown disabled.
 
 Left for H:
-- Form: tag picker for a host (tags can be created on the Hosts screen).
-- Update tests for the new screens (terminal_screen_test, widget_test,
-  server_form_screen_test, terminal_keyboard_bar_test), port the old
-  status-screen tests to the card/sheet, add tests for PausableDeadline,
-  groupFingerprint, plainConnectionError, AppSettings JSON, model fields.
-- H6: icon and splash in the new colors; golden tests for the main screens.
-- CLAUDE.md architecture update, then merge to `main` and CI.
+- Tag picker in the host form (tags can only be created from the Hosts
+  screen chips today, and assigned nowhere yet).
+- H6: new icon and splash colors; golden tests for the main screens.
+- Not yet checked on a phone.
 
 ## Milestone C: not started.
 

@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssh_app/app.dart';
@@ -25,8 +24,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('No servers yet'), findsOneWidget);
-    expect(find.text('Add server'), findsWidgets);
+    expect(find.text('No hosts yet'), findsOneWidget);
+    expect(find.text('New host'), findsWidgets);
   });
 
   testWidgets('server list shows the label and hides the password', (
@@ -57,8 +56,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Build box'), findsOneWidget);
-    expect(find.textContaining('ada@example.com:22'), findsOneWidget);
+    expect(find.text('ada@example.com'), findsOneWidget);
     expect(find.text('super-secret-password'), findsNothing);
-    expect(find.byType(ListTile), findsOneWidget);
+    expect(find.textContaining('Never connected'), findsOneWidget);
   });
 }

@@ -58,12 +58,18 @@ void main() {
   testWidgets('back asks before disconnecting', (tester) async {
     final disconnects = <int>[0];
     await tester.pumpWidget(
-      _terminalApp(server, disconnects: disconnects, pushed: true),
+      _terminalApp(
+        server,
+        disconnects: disconnects,
+        pushed: true,
+        session: RecordingSession(server)..connected = true,
+        states: Stream.value(const SSHConnectionState.connected()),
+      ),
     );
     await tester.tap(find.text('Open terminal'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(BackButton));
+    await tester.tap(find.byTooltip('Back'));
     await tester.pumpAndSettle();
 
     expect(find.text('Disconnect?'), findsOneWidget);
@@ -75,7 +81,7 @@ void main() {
     expect(find.byType(TerminalScreen), findsOneWidget);
     expect(disconnects.single, 0);
 
-    await tester.tap(find.byType(BackButton));
+    await tester.tap(find.byTooltip('Back'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(TextButton, 'Disconnect'));
     await tester.pumpAndSettle();
@@ -85,15 +91,23 @@ void main() {
     expect(find.byType(TerminalScreen), findsNothing);
   });
 
-  testWidgets('the power button asks before disconnecting', (tester) async {
+  testWidgets('Disconnect in the menu asks before disconnecting', (tester) async {
     final disconnects = <int>[0];
     await tester.pumpWidget(
-      _terminalApp(server, disconnects: disconnects, pushed: true),
+      _terminalApp(
+        server,
+        disconnects: disconnects,
+        pushed: true,
+        session: RecordingSession(server)..connected = true,
+        states: Stream.value(const SSHConnectionState.connected()),
+      ),
     );
     await tester.tap(find.text('Open terminal'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Disconnect'));
+    await tester.tap(find.byTooltip('More'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ListTile, 'Disconnect'));
     await tester.pumpAndSettle();
     expect(find.text('Disconnect?'), findsOneWidget);
 
@@ -102,7 +116,9 @@ void main() {
     expect(disconnects.single, 0);
     expect(find.byType(TerminalScreen), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Disconnect'));
+    await tester.tap(find.byTooltip('More'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ListTile, 'Disconnect'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(TextButton, 'Disconnect'));
     await tester.pumpAndSettle();
@@ -120,7 +136,7 @@ void main() {
       await tester.pump();
       session.writes.clear();
 
-      await tester.tap(find.byTooltip('Paste'));
+      await _tapPasteKey(tester);
       await tester.pumpAndSettle();
 
       expect(find.byType(AlertDialog), findsNothing);
@@ -137,7 +153,7 @@ void main() {
       await tester.pump();
       session.writes.clear();
 
-      await tester.tap(find.byTooltip('Paste'));
+      await _tapPasteKey(tester);
       await tester.pumpAndSettle();
       expect(find.text('Paste 2 lines?'), findsOneWidget);
       expect(find.textContaining('may run these lines'), findsOneWidget);
@@ -152,7 +168,7 @@ void main() {
       expect(session.writes, isEmpty);
 
       clipboard.text = 'echo one\necho two';
-      await tester.tap(find.byTooltip('Paste'));
+      await _tapPasteKey(tester);
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Paste'));
       await tester.pumpAndSettle();
@@ -169,14 +185,14 @@ void main() {
       _terminal(tester).write('\x1b[?2004h');
       session.writes.clear();
 
-      await tester.tap(find.byTooltip('Paste'));
+      await _tapPasteKey(tester);
       await tester.pumpAndSettle();
       // The end marker inside the text cannot close the bracket early.
       expect(session.written, '\x1b[200~vim:q!\x1b[201~');
 
       clipboard.text = 'line one\nline two';
       session.writes.clear();
-      await tester.tap(find.byTooltip('Paste'));
+      await _tapPasteKey(tester);
       await tester.pumpAndSettle();
       expect(find.textContaining('bracketed paste'), findsOneWidget);
       await tester.tap(find.widgetWithText(FilledButton, 'Paste'));
@@ -187,7 +203,7 @@ void main() {
       _terminal(tester).write('\x1b[?2004l');
       clipboard.text = 'pwd';
       session.writes.clear();
-      await tester.tap(find.byTooltip('Paste'));
+      await _tapPasteKey(tester);
       await tester.pumpAndSettle();
       expect(session.written, 'pwd');
     });
@@ -203,11 +219,14 @@ void main() {
       await tester.pump();
       session.writes.clear();
 
-      await tester.tap(find.byTooltip('Paste'));
+      await _tapPasteKey(tester);
       await tester.pumpAndSettle();
 
       expect(session.written, 'cat');
-      expect(find.byTooltip('CTRL, next key'), findsOneWidget);
+      expect(
+        tester.widget<Text>(find.byKey(const ValueKey('modifier-hint'))).data,
+        'CTRL armed',
+      );
     });
   });
 
@@ -478,8 +497,7 @@ void main() {
       await tester.pump();
 
       expect(
-        find.text('Connection lost. Waiting for a network connection to '
-            'reconnect.'),
+        find.text('Waiting for a network connection to reconnect.'),
         findsOneWidget,
       );
     });
@@ -647,6 +665,14 @@ void main() {
   });
 }
 
+/// Paste is on the second page of the key bar.
+Future<void> _tapPasteKey(WidgetTester tester) async {
+  final bar = find.byType(PageView);
+  await tester.drag(bar, const Offset(-400, 0));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byTooltip('Paste'));
+}
+
 Future<void> _openSoftKeyboard(WidgetTester tester) async {
   await tester.pump();
   await tester.tap(find.byType(TerminalView));
@@ -728,7 +754,11 @@ Widget _terminalApp(
   SSHConnectionSession? session,
   Stream<SSHConnectionState>? states,
 }) {
-  final terminal = TerminalScreen(server: server, sessionId: 'session-1');
+  final terminal = TerminalScreen(
+    server: server,
+    sessionId: 'session-1',
+    autoConnect: false,
+  );
   return ProviderScope(
     overrides: [
       sshConnectionServiceProvider.overrideWithValue(

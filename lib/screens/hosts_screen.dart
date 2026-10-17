@@ -97,7 +97,7 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: secureStorageAvailable ? _openForm : null,
+        onPressed: _openForm,
         icon: const Icon(Icons.add),
         label: const Text('New host'),
       ),

@@ -57,6 +57,8 @@ void main() {
     await tester.tap(find.text('ESC'));
     await tester.tap(find.text('|'));
     await tester.tap(find.text('CTRL'));
+    await tester.drag(find.byType(PageView), const Offset(-400, 0));
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Paste'));
 
     expect(key, TerminalKey.escape);

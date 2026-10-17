@@ -195,16 +195,18 @@ class ConnectionCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            Row(
+            Wrap(
+              alignment: WrapAlignment.end,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 4,
               children: [
                 TextButton(onPressed: onDetails, child: const Text('Details')),
-                const Spacer(),
                 if (failed) ...[
                   OutlinedButton(
                     onPressed: onEditHost,
                     child: const Text('Edit host'),
                   ),
-                  const SizedBox(width: 8),
                   FilledButton(onPressed: onRetry, child: const Text('Retry')),
                 ] else
                   OutlinedButton(onPressed: onCancel, child: const Text('Cancel')),
