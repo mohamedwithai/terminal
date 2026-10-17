@@ -48,6 +48,11 @@ class AppSettings {
     this.haptics = true,
     this.hostFontSizes = const {},
     this.tags = defaultTags,
+    this.autocomplete = true,
+    this.completePaths = true,
+    this.completeHistory = true,
+    this.completeSnippets = true,
+    this.completeCommon = true,
   });
 
   static const defaultFontSize = 14.0;
@@ -92,6 +97,11 @@ class AppSettings {
       volumeKeys: json['volumeKeys'] == true,
       haptics: json['haptics'] != false,
       hostFontSizes: sizes,
+      autocomplete: json['autocomplete'] != false,
+      completePaths: json['completePaths'] != false,
+      completeHistory: json['completeHistory'] != false,
+      completeSnippets: json['completeSnippets'] != false,
+      completeCommon: json['completeCommon'] != false,
       tags: rawTags is List
           ? [
               for (final tag in rawTags)
@@ -119,6 +129,13 @@ class AppSettings {
   /// Tags offered on the Hosts screen and in the host form.
   final List<String> tags;
 
+  /// Suggest completions while typing, and which sources feed them.
+  final bool autocomplete;
+  final bool completePaths;
+  final bool completeHistory;
+  final bool completeSnippets;
+  final bool completeCommon;
+
   double fontSizeFor(String serverId) => hostFontSizes[serverId] ?? fontSize;
 
   static double _clampSize(double size) =>
@@ -134,6 +151,11 @@ class AppSettings {
     bool? haptics,
     Map<String, double>? hostFontSizes,
     List<String>? tags,
+    bool? autocomplete,
+    bool? completePaths,
+    bool? completeHistory,
+    bool? completeSnippets,
+    bool? completeCommon,
   }) {
     return AppSettings(
       terminalTheme: terminalTheme ?? this.terminalTheme,
@@ -145,6 +167,11 @@ class AppSettings {
       haptics: haptics ?? this.haptics,
       hostFontSizes: hostFontSizes ?? this.hostFontSizes,
       tags: tags ?? this.tags,
+      autocomplete: autocomplete ?? this.autocomplete,
+      completePaths: completePaths ?? this.completePaths,
+      completeHistory: completeHistory ?? this.completeHistory,
+      completeSnippets: completeSnippets ?? this.completeSnippets,
+      completeCommon: completeCommon ?? this.completeCommon,
     );
   }
 
@@ -159,6 +186,11 @@ class AppSettings {
       'haptics': haptics,
       'hostFontSizes': hostFontSizes,
       'tags': tags,
+      'autocomplete': autocomplete,
+      'completePaths': completePaths,
+      'completeHistory': completeHistory,
+      'completeSnippets': completeSnippets,
+      'completeCommon': completeCommon,
     };
   }
 }

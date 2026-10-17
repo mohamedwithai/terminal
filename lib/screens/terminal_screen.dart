@@ -8,6 +8,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ssh_app/models/server_config.dart';
+import 'package:ssh_app/providers/autocomplete_providers.dart';
 import 'package:ssh_app/providers/preferences_providers.dart';
 import 'package:ssh_app/providers/snippet_providers.dart';
 import 'package:ssh_app/providers/ssh_providers.dart';
@@ -17,11 +18,16 @@ import 'package:ssh_app/models/snippet.dart';
 import 'package:ssh_app/screens/server_form_screen.dart';
 import 'package:ssh_app/screens/snippets/run_sheet.dart';
 import 'package:ssh_app/screens/snippets/snippet_picker_sheet.dart';
+import 'package:ssh_app/services/autocomplete/completion_engine.dart';
+import 'package:ssh_app/services/autocomplete/directory_lister.dart';
+import 'package:ssh_app/services/autocomplete/shell_integration.dart';
 import 'package:ssh_app/services/snippets/snippet_runner.dart';
 import 'package:ssh_app/screens/settings_screen.dart';
+import 'package:ssh_app/screens/terminal/autocomplete_controller.dart';
 import 'package:ssh_app/screens/terminal/connection_card.dart';
 import 'package:ssh_app/screens/terminal/connection_log_view.dart';
 import 'package:ssh_app/screens/terminal/host_key_sheet.dart';
+import 'package:ssh_app/screens/terminal/suggestion_panel.dart';
 import 'package:ssh_app/screens/terminal_input.dart';
 import 'package:ssh_app/screens/terminal_keyboard_bar.dart';
 import 'package:ssh_app/screens/terminal_paste.dart';
@@ -87,6 +93,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     write: (text) => _session?.writeShell(utf8.encode(text)),
   );
 
+  late final AutocompleteController _auto;
+
   /// The snippet running now, for the banner above the key bar.
   ({String name, int step, int total})? _running;
 
@@ -136,7 +144,43 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   @override
   void initState() {
     super.initState();
-    _terminal.onOutput = _sendToShell;
+    final lister = RemoteDirectoryLister(
+      exec: (command) async {
+        final session = _session;
+        if (session == null || !session.isConnected) {
+          throw StateError('Not connected.');
+        }
+        return session.execute(command);
+      },
+    );
+    final history = ref.read(commandHistoryProvider);
+    _auto = AutocompleteController(
+      terminal: _terminal,
+      hostId: widget.server.id,
+      history: history,
+      engine: CompletionEngine(
+        history: () => history.entries(widget.server.id),
+        snippets: () => ref.read(snippetListProvider).asData?.value ?? const [],
+        listDirectory: lister.list,
+      ),
+      sources: () {
+        final settings = ref.read(appSettingsProvider);
+        return CompletionSources(
+          paths: settings.completePaths,
+          history: settings.completeHistory,
+          snippets: settings.completeSnippets,
+          common: settings.completeCommon,
+        );
+      },
+      enabled: () => ref.read(appSettingsProvider).autocomplete,
+      send: (text) => _terminal.onOutput?.call(text),
+    );
+    _terminal.onOutput = (data) {
+      _auto.onInput(data);
+      _sendToShell(data);
+    };
+    _terminal.onPrivateOSC = _auto.handleOsc;
+    _terminal.addListener(_auto.onTerminalChanged);
     _terminal.onResize = _onTerminalResize;
     _modifiers.addListener(_onModifiersChanged);
     HardwareKeyboard.instance.addHandler(_onHardwareKey);
@@ -150,6 +194,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     HardwareKeyboard.instance.removeHandler(_onHardwareKey);
     // A snippet still running is abandoned with the screen.
     _runner.cancel();
+    _terminal.removeListener(_auto.onTerminalChanged);
+    _auto.dispose();
     _ptySize.dispose();
     _gridSize.dispose();
     _modifiers.removeListener(_onModifiersChanged);
@@ -283,6 +329,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
       }
       await _outputSub?.cancel();
       _shell = shell;
+      _auto.reset();
       // The view may have changed size while the shell was opening.
       _ptySize.opened(columns, rows);
       if (_connectionLost) {
@@ -372,6 +419,65 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
         ),
       ),
     );
+  }
+
+  /// Offers to add the shell integration script to the server's rc file.
+  Future<void> _installShellIntegration() async {
+    if (_shell == null || _terminal.isUsingAltBuffer) {
+      _snackbar('Open a shell prompt first.');
+      return;
+    }
+    final install = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Install shell integration?'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _auto.marks.active
+                    ? 'It is already working on this server.'
+                    : 'This adds a few lines to ~/.bashrc or ~/.zshrc on the '
+                          'server so the app knows where you type and which '
+                          'folder you are in. Suggestions work without it, '
+                          'but better with it. It runs in the shell below, '
+                          'where you can see it.',
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.terminalBackground,
+                  borderRadius: BorderRadius.circular(AppRadii.key),
+                ),
+                child: Text(
+                  shellIntegrationScript.trim(),
+                  style: const TextStyle(
+                    fontFamily: AppFonts.mono,
+                    fontSize: 10.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(_auto.marks.active ? 'Add again' : 'Install'),
+          ),
+        ],
+      ),
+    );
+    if (install == true && mounted && _shell != null) {
+      _terminal.onOutput?.call('${shellIntegrationInstallCommand()}\r');
+    }
   }
 
   /// Opens the snippet list and runs the one picked in this terminal.
@@ -533,6 +639,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   }
 
   void _sendKey(TerminalKey key) {
+    if (key == TerminalKey.arrowRight && _auto.acceptGhost()) {
+      _focusNode.requestFocus();
+      return;
+    }
     _terminal.keyInput(key);
     _focusNode.requestFocus();
   }
@@ -574,6 +684,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   /// Applies an armed on-screen modifier to a character typed on a hardware
   /// keyboard, before TerminalView turns the key into a [TerminalKey].
   KeyEventResult _onKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.arrowRight &&
+        !_modifiers.isArmed &&
+        !HardwareKeyboard.instance.isControlPressed &&
+        !HardwareKeyboard.instance.isAltPressed &&
+        _auto.acceptGhost()) {
+      return KeyEventResult.handled;
+    }
     if (event is KeyUpEvent || !_modifiers.isArmed) {
       return KeyEventResult.ignored;
     }
@@ -786,6 +904,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
             MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
           ),
           onLog: _showDetails,
+          onIntegration: () => unawaited(_installShellIntegration()),
           onDisconnect: () => unawaited(_leave()),
         ),
         body: Column(
@@ -838,6 +957,19 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                       ),
                     ),
                   ),
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: ListenableBuilder(
+                        listenable: _auto,
+                        builder: (context, _) => _GhostText(
+                          controller: _auto,
+                          viewKey: _terminalViewKey,
+                          fontSize: fontSize,
+                          fontFamily: settings.font.fontFamily,
+                        ),
+                      ),
+                    ),
+                  ),
                   if (card != null)
                     Positioned(
                       top: 12,
@@ -857,6 +989,21 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                       ),
                     ),
                 ],
+              ),
+            ),
+            ListenableBuilder(
+              listenable: _auto,
+              builder: (context, _) => SuggestionPanel(
+                suggestions: _auto.suggestions,
+                typed: _auto.line ?? '',
+                onFill: (suggestion) {
+                  _auto.accept(suggestion);
+                  _focusNode.requestFocus();
+                },
+                onFillAndRun: (suggestion) {
+                  _auto.accept(suggestion, enter: true);
+                  _focusNode.requestFocus();
+                },
               ),
             ),
             if (_running != null)
@@ -895,6 +1042,7 @@ class _TerminalBar extends StatelessWidget implements PreferredSizeWidget {
     required this.onSnippets,
     required this.onSettings,
     required this.onLog,
+    required this.onIntegration,
     required this.onDisconnect,
   });
 
@@ -905,6 +1053,7 @@ class _TerminalBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback onSnippets;
   final VoidCallback onSettings;
   final VoidCallback onLog;
+  final VoidCallback onIntegration;
   final VoidCallback onDisconnect;
 
   @override
@@ -962,6 +1111,7 @@ class _TerminalBar extends StatelessWidget implements PreferredSizeWidget {
                 onSelected: (value) => switch (value) {
                   'settings' => onSettings(),
                   'log' => onLog(),
+                  'integration' => onIntegration(),
                   _ => onDisconnect(),
                 },
                 itemBuilder: (context) => const [
@@ -978,6 +1128,14 @@ class _TerminalBar extends StatelessWidget implements PreferredSizeWidget {
                     child: ListTile(
                       leading: Icon(Icons.receipt_long),
                       title: Text('Connection log'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'integration',
+                    child: ListTile(
+                      leading: Icon(Icons.auto_fix_high),
+                      title: Text('Shell integration'),
                       contentPadding: EdgeInsets.zero,
                     ),
                   ),
@@ -1090,6 +1248,65 @@ class _SnippetBanner extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The first suggestion, in grey, right after the cursor.
+class _GhostText extends StatelessWidget {
+  const _GhostText({
+    required this.controller,
+    required this.viewKey,
+    required this.fontSize,
+    required this.fontFamily,
+  });
+
+  final AutocompleteController controller;
+  final GlobalKey<TerminalViewState> viewKey;
+  final double fontSize;
+  final String fontFamily;
+
+  @override
+  Widget build(BuildContext context) {
+    final suffix = controller.ghost?.insert.split('\n').first;
+    final view = viewKey.currentState;
+    if (suffix == null || suffix.isEmpty || view == null || !view.mounted) {
+      return const SizedBox.shrink();
+    }
+    final render = view.renderTerminal;
+    if (!render.hasSize) {
+      return const SizedBox.shrink();
+    }
+    final offset = render.cursorOffset;
+    final cell = render.cellSize;
+    // Off screen when scrolled back.
+    if (offset.dy < 0 || offset.dy + cell.height > render.size.height + 1) {
+      return const SizedBox.shrink();
+    }
+    return Stack(
+      clipBehavior: Clip.hardEdge,
+      children: [
+        Positioned(
+          left: offset.dx,
+          top: offset.dy,
+          right: 0,
+          height: cell.height,
+          child: Text(
+            suffix,
+            key: const ValueKey('ghost-text'),
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.clip,
+            style: TextStyle(
+              fontFamily: fontFamily,
+              fontFamilyFallback: const [...AppFonts.fallback, 'monospace'],
+              fontSize: fontSize,
+              height: 1.2,
+              color: AppColors.muted.withValues(alpha: 0.7),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

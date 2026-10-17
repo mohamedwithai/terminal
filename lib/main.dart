@@ -4,9 +4,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:ssh_app/app.dart';
+import 'package:ssh_app/providers/autocomplete_providers.dart';
 import 'package:ssh_app/providers/preferences_providers.dart';
 import 'package:ssh_app/providers/snippet_providers.dart';
 import 'package:ssh_app/providers/vault_providers.dart';
+import 'package:ssh_app/services/autocomplete/history.dart';
 import 'package:ssh_app/services/hive_metadata_store.dart';
 import 'package:ssh_app/services/preferences_store.dart';
 import 'package:ssh_app/services/snippet_store.dart';
@@ -18,12 +20,14 @@ Future<void> main() async {
   final metadataStore = await HiveMetadataStore.open();
   final preferences = await HivePreferencesStore.open();
   final snippets = await HiveSnippetStore.open();
+  final history = await HiveHistoryStore.open();
   runApp(
     ProviderScope(
       overrides: [
         metadataStoreProvider.overrideWithValue(metadataStore),
         preferencesStoreProvider.overrideWithValue(preferences),
         snippetStoreProvider.overrideWithValue(snippets),
+        historyStoreProvider.overrideWithValue(history),
       ],
       child: const SessionKeeperScope(child: SshApp()),
     ),

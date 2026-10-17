@@ -117,7 +117,7 @@ Tamil as a fallback.
 - **D6 Tests:** variable parsing, the step runner with a fake shell
   (success, a failure stops, timeout), the on-connect trigger.
 
-## Milestone I: autocomplete
+## Milestone I: autocomplete *(done)*
 
 - **I1 Shell integration:** optional one-tap install of a small zsh/bash
   snippet that emits OSC 133 (prompt, command start/end and exit code) and

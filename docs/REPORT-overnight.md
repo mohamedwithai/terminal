@@ -60,7 +60,7 @@ Phone checklist for C:
 - "Active now" stays empty until milestone F, because leaving the terminal
   ends the session today. OK?
 
-## Milestone D: snippets and automation
+## Milestone D: snippets and automation (59cbe90, CI run #11, green)
 Library (search, tags, "Runs automatically", badges, Run, import/export JSON),
 editor (ordered steps with wait rules and timeouts, typed variables, stop at
 first failure, ask first, on-connect hosts with a tmux tip), run sheet
@@ -90,3 +90,29 @@ Phone checklist for D:
 5. Run on two hosts; leave the screen, switch apps, wait for the notification.
 6. Tick a host under "Run automatically on connect" with `tmux new -A -s main`.
 7. Export, delete, import.
+
+## Milestone I: autocomplete
+Shell integration (OSC 133 / OSC 7) with a one-tap install from the terminal
+menu (a visible, confirmed, base64 one-liner that appends to `~/.bashrc` or
+`~/.zshrc` once; the script was tested against real bash and zsh), parsing of
+both, a keystroke fallback, per-host history (max 2000, secrets and space-led
+lines skipped), a ranked engine (paths, history, snippets, common), remote
+folder listing over a separate exec channel (30s cache, never on screen), ghost
+text, a 4-row panel, and settings (a switch per source, clear history per host).
+Tests: ranking, history filter and cap, OSC parsing, the fallback tracker,
+the directory lister, and terminal UI behavior (including password prompts).
+
+Decisions and limits:
+- Without the integration the working directory is unknown, so relative paths
+  are not completed; absolute and `~/` paths still are.
+- Anything typed at a prompt that ends in "password:" or similar is never kept,
+  in either mode.
+- With the integration only commands that exit 0 enter the history.
+- The panel and ghost text stay off in full-screen programs.
+
+Phone checklist for I:
+1. Type `git p` after running `git push` once; grey text and a list appear.
+2. Tap a row to fill; long-press one to fill and run; right arrow takes the ghost.
+3. Terminal menu, Shell integration, Install; open a new shell. `cd ` then lists folders.
+4. `sudo ls` and type the password: it must not appear in suggestions later.
+5. Settings, Autocomplete: switch sources off; Clear history for the host.

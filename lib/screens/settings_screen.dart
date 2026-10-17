@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ssh_app/models/app_settings.dart';
+import 'package:ssh_app/providers/autocomplete_providers.dart';
 import 'package:ssh_app/providers/preferences_providers.dart';
+import 'package:ssh_app/providers/vault_providers.dart';
 import 'package:ssh_app/theme/terminal_themes.dart';
 import 'package:ssh_app/theme/tokens.dart';
 import 'package:xterm/xterm.dart';
@@ -116,6 +118,73 @@ class SettingsScreen extends ConsumerWidget {
                 value: settings.haptics,
                 onChanged: (on) =>
                     notifier.update((current) => current.copyWith(haptics: on)),
+              ),
+            ],
+          ),
+          const _Header('Autocomplete'),
+          _SwitchCard(
+            children: [
+              SwitchListTile(
+                title: const Text('Suggest while typing'),
+                subtitle: const Text(
+                  'Grey text after the cursor and a list above the keys. '
+                  'Nothing runs until you press Enter.',
+                ),
+                value: settings.autocomplete,
+                onChanged: (on) => notifier.update(
+                  (current) => current.copyWith(autocomplete: on),
+                ),
+              ),
+              const Divider(),
+              SwitchListTile(
+                title: const Text('Files and folders'),
+                subtitle: const Text('After cd, ls, cat, nano, vim'),
+                value: settings.completePaths,
+                onChanged: settings.autocomplete
+                    ? (on) => notifier.update(
+                        (current) => current.copyWith(completePaths: on),
+                      )
+                    : null,
+              ),
+              SwitchListTile(
+                title: const Text('History'),
+                subtitle: const Text('Commands you ran on this host'),
+                value: settings.completeHistory,
+                onChanged: settings.autocomplete
+                    ? (on) => notifier.update(
+                        (current) => current.copyWith(completeHistory: on),
+                      )
+                    : null,
+              ),
+              SwitchListTile(
+                title: const Text('Snippets'),
+                value: settings.completeSnippets,
+                onChanged: settings.autocomplete
+                    ? (on) => notifier.update(
+                        (current) => current.copyWith(completeSnippets: on),
+                      )
+                    : null,
+              ),
+              SwitchListTile(
+                title: const Text('Common commands'),
+                value: settings.completeCommon,
+                onChanged: settings.autocomplete
+                    ? (on) => notifier.update(
+                        (current) => current.copyWith(completeCommon: on),
+                      )
+                    : null,
+              ),
+              const Divider(),
+              ListTile(
+                key: const ValueKey('clear-history'),
+                title: const Text('Clear history'),
+                subtitle: const Text('Per host. History stays on this device.'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => showModalBottomSheet<void>(
+                  context: context,
+                  isScrollControlled: true,
+                  builder: (_) => const HistorySheet(),
+                ),
               ),
             ],
           ),
@@ -454,6 +523,65 @@ class _Header extends StatelessWidget {
           color: AppColors.muted,
           fontWeight: FontWeight.w600,
           letterSpacing: 0.4,
+        ),
+      ),
+    );
+  }
+}
+
+/// Hosts that have command history, each with a Clear button.
+class HistorySheet extends ConsumerStatefulWidget {
+  const HistorySheet({super.key});
+
+  @override
+  ConsumerState<HistorySheet> createState() => _HistorySheetState();
+}
+
+class _HistorySheetState extends ConsumerState<HistorySheet> {
+  @override
+  Widget build(BuildContext context) {
+    final history = ref.watch(commandHistoryProvider);
+    final servers = ref.watch(serverListProvider).asData?.value ?? const [];
+    final ids = history.hosts().where((id) => history.count(id) > 0).toList();
+    String nameOf(String id) {
+      for (final server in servers) {
+        if (server.id == id) return server.label;
+      }
+      return 'Deleted host';
+    }
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Command history',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 12),
+            if (ids.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Text('No history saved.'),
+              ),
+            for (final id in ids)
+              ListTile(
+                key: ValueKey('history-$id'),
+                contentPadding: EdgeInsets.zero,
+                title: Text(nameOf(id)),
+                subtitle: Text('${history.count(id)} commands'),
+                trailing: TextButton(
+                  onPressed: () async {
+                    await history.clear(id);
+                    if (mounted) setState(() {});
+                  },
+                  child: const Text('Clear'),
+                ),
+              ),
+          ],
         ),
       ),
     );
