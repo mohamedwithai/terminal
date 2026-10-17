@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dartssh2/dartssh2.dart';
+import 'package:ssh_app/models/auth_type.dart';
 import 'package:ssh_app/models/server_config.dart';
 import 'package:ssh_app/services/ssh/host_key_verifier.dart';
 import 'package:ssh_app/services/ssh/ssh_connection_service.dart';
@@ -129,4 +130,32 @@ class SingleSessionService extends SSHConnectionService {
   ) {
     return session;
   }
+}
+
+/// A service with a separate [RecordingSession] for every session ID.
+class MultiSessionService extends SSHConnectionService {
+  MultiSessionService() : super(hostKeyVerifier: noKnownHosts());
+
+  final sessions = <String, RecordingSession>{};
+
+  @override
+  SSHConnectionSession? getSession(String sessionId) {
+    return sessions.putIfAbsent(
+      sessionId,
+      () => RecordingSession(
+        ServerConfig.create(
+          label: 'x',
+          host: 'x.example.com',
+          username: 'x',
+          authType: AuthType.password,
+        ),
+      )..connected = true,
+    );
+  }
+
+  @override
+  SSHConnectionSession getOrCreateSession(
+    String sessionId,
+    ServerConfig server,
+  ) => getSession(sessionId)!;
 }

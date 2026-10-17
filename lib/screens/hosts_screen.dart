@@ -3,13 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ssh_app/models/auth_type.dart';
 import 'package:ssh_app/models/server_config.dart';
 import 'package:ssh_app/providers/preferences_providers.dart';
+import 'package:ssh_app/providers/session_tabs_providers.dart';
 import 'package:ssh_app/providers/snippet_providers.dart';
 import 'package:ssh_app/providers/ssh_providers.dart';
 import 'package:ssh_app/providers/vault_providers.dart';
 import 'package:ssh_app/screens/format.dart';
 import 'package:ssh_app/screens/server_form_screen.dart';
 import 'package:ssh_app/screens/settings_screen.dart';
-import 'package:ssh_app/screens/terminal_screen.dart';
 import 'package:ssh_app/screens/widgets/host_avatar.dart';
 import 'package:ssh_app/theme/tokens.dart';
 
@@ -38,10 +38,14 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
     );
   }
 
+  /// Opens the host's session, or goes back to it if one is already open.
   void _connect(ServerConfig server) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => TerminalScreen(server: server)),
-    );
+    ref.read(sessionTabsProvider.notifier).openOrFocus(server);
+  }
+
+  /// Another session to the same host.
+  void _newSession(ServerConfig server) {
+    ref.read(sessionTabsProvider.notifier).open(server);
   }
 
   Future<void> _addTag() async {
@@ -75,12 +79,14 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
     final servers = ref.watch(serverListProvider);
     final secureStorageAvailable = ref.watch(secureStorageAvailableProvider);
     final settings = ref.watch(appSettingsProvider);
-    final active = ref.watch(activeSessionsProvider).asData?.value ?? const [];
+    // "Active now" is the sessions open in the terminal tabs (not the
+    // headless runs of snippets).
+    final openTabs = ref.watch(sessionTabsProvider).tabs;
     final now = ref.watch(clockProvider)();
 
     final tabsByServer = <String, int>{};
-    for (final session in active) {
-      tabsByServer.update(session.server.id, (n) => n + 1, ifAbsent: () => 1);
+    for (final tab in openTabs) {
+      tabsByServer.update(tab.server.id, (n) => n + 1, ifAbsent: () => 1);
     }
 
     return Scaffold(
@@ -156,6 +162,7 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
                           tabs: tabsByServer[server.id],
                           onTap: () => _connect(server),
                           onEdit: () => _openForm(server),
+                          onNewSession: () => _newSession(server),
                         ),
                     ],
                     _SectionHeader(
@@ -171,6 +178,7 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
                           now: now,
                           onTap: () => _connect(server),
                           onEdit: () => _openForm(server),
+                          onNewSession: () => _newSession(server),
                         ),
                   ],
                 );
@@ -304,6 +312,7 @@ class _HostRow extends ConsumerWidget {
     required this.now,
     required this.onTap,
     required this.onEdit,
+    required this.onNewSession,
     this.tabs,
   });
 
@@ -311,6 +320,7 @@ class _HostRow extends ConsumerWidget {
   final DateTime now;
   final VoidCallback onTap;
   final VoidCallback onEdit;
+  final VoidCallback onNewSession;
 
   /// Open sessions to this host, in the "Active now" section.
   final int? tabs;
@@ -407,7 +417,11 @@ class _HostRow extends ConsumerWidget {
                       ),
                     ),
                   ),
-                _HostMenu(server: server, onEdit: onEdit),
+                _HostMenu(
+                  server: server,
+                  onEdit: onEdit,
+                  onNewSession: onNewSession,
+                ),
               ],
             ),
           ),
@@ -418,10 +432,15 @@ class _HostRow extends ConsumerWidget {
 }
 
 class _HostMenu extends ConsumerWidget {
-  const _HostMenu({required this.server, required this.onEdit});
+  const _HostMenu({
+    required this.server,
+    required this.onEdit,
+    required this.onNewSession,
+  });
 
   final ServerConfig server;
   final VoidCallback onEdit;
+  final VoidCallback onNewSession;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -431,15 +450,27 @@ class _HostMenu extends ConsumerWidget {
       onSelected: (value) async {
         if (value == 'edit') {
           onEdit();
+        } else if (value == 'session') {
+          onNewSession();
         } else if (value == 'delete') {
           final confirmed = await _confirmDelete(context, server.label);
           if (confirmed && context.mounted) {
+            // Its open sessions end with it.
+            ref.read(sessionTabsProvider.notifier).closeForServer(server.id);
             await ref.read(serverListProvider.notifier).delete(server.id);
             await ref.read(snippetListProvider.notifier).forgetHost(server.id);
           }
         }
       },
       itemBuilder: (context) => const [
+        PopupMenuItem(
+          value: 'session',
+          child: ListTile(
+            leading: Icon(Icons.add_to_queue),
+            title: Text('New session'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
         PopupMenuItem(
           value: 'edit',
           child: ListTile(

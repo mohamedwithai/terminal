@@ -144,7 +144,7 @@ Tamil as a fallback.
 2. Lock on app start and after the background timeout. Hide app contents in
    the recent-apps screen (`FLAG_SECURE` on Android).
 
-## Milestone F: multiple sessions
+## Milestone F: multiple sessions *(done)*
 
 1. Several sessions at once (same or different servers). Tabs or a session
    switcher in the terminal screen; each keeps its own terminal buffer.

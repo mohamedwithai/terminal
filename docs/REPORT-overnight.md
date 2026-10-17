@@ -117,7 +117,7 @@ Phone checklist for I:
 4. `sudo ls` and type the password: it must not appear in suggestions later.
 5. Settings, Autocomplete: switch sources off; Clear history for the host.
 
-## Milestone E: app lock
+## Milestone E: app lock (182503c, CI run #13, green)
 PIN (4 to 12 digits; salted PBKDF2-SHA256 hash, never the PIN, in secure
 storage), optional fingerprint or face (`local_auth`, biometrics only), lock on
 start and after "Immediately / 1 minute / 5 minutes" in the background,
@@ -144,3 +144,32 @@ Phone checklist for E:
 4. Set "After 1 minute": leave for 30 s (opens), then 70 s (locks).
 5. Pick a file to import a key: the app must not lock on return.
 6. Turn the lock off with the PIN; change the PIN.
+
+## Milestone F: multiple sessions
+Several sessions at once, to the same or different hosts. A tab bar under the
+terminal bar (status dot, host name, numbered when a host is open twice, close
+button, + for a new session) switches between them; every tab keeps its own
+terminal buffer, shell and connection, also while you browse the host list.
+Back leaves the sessions open ("Active now" and a badge on Hosts show them);
+tapping the host returns to its tab, the row menu opens another session.
+Closing a tab ends that session only. The notification shows the count
+("2 SSH sessions active"). Deleting a host closes its tabs.
+
+Found and fixed on the way: `IndexedStack` destroyed the next pane's state when
+a tab before it closed; panes are now a keyed `Stack`. "Active now" counted
+headless snippet sessions too; it now counts open tabs.
+
+Decisions and limits:
+- Back no longer asks to disconnect; closing a tab (x, or Disconnect in the
+  menu) does, when it is connected. "Disconnect" in the notification still ends
+  every session.
+- Tapping a host that is already open goes to its tab; use New session for a
+  second one.
+- Tabs live as long as the app process; they are not restored after it dies.
+
+Phone checklist for F:
+1. Open two hosts; type something in each; switch tabs: each keeps its screen.
+2. Press Back: the host list shows "Active now"; tap a host: you return to it.
+3. + in the tab bar, pick the same host: tabs "Name 1" and "Name 2".
+4. Close one tab (x): only it disconnects; the other keeps running.
+5. Pull the notification shade: "2 SSH sessions active".

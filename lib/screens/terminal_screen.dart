@@ -11,6 +11,7 @@ import 'package:ssh_app/models/server_config.dart';
 import 'package:ssh_app/providers/app_lock_providers.dart';
 import 'package:ssh_app/providers/autocomplete_providers.dart';
 import 'package:ssh_app/providers/preferences_providers.dart';
+import 'package:ssh_app/providers/session_tabs_providers.dart';
 import 'package:ssh_app/providers/snippet_providers.dart';
 import 'package:ssh_app/providers/ssh_providers.dart';
 import 'package:ssh_app/providers/vault_providers.dart';
@@ -28,6 +29,7 @@ import 'package:ssh_app/screens/terminal/autocomplete_controller.dart';
 import 'package:ssh_app/screens/terminal/connection_card.dart';
 import 'package:ssh_app/screens/terminal/connection_log_view.dart';
 import 'package:ssh_app/screens/terminal/host_key_sheet.dart';
+import 'package:ssh_app/screens/terminal/session_tab_bar.dart';
 import 'package:ssh_app/screens/terminal/suggestion_panel.dart';
 import 'package:ssh_app/screens/terminal_input.dart';
 import 'package:ssh_app/screens/terminal_keyboard_bar.dart';
@@ -61,9 +63,32 @@ class TerminalScreen extends ConsumerStatefulWidget {
     required this.server,
     this.sessionId,
     this.autoConnect = true,
+    this.tabId,
+    this.active = true,
+    this.tabsBar,
+    this.onBack,
+    this.onClose,
   });
 
   final ServerConfig server;
+
+  /// The tab this pane belongs to, which it reports its status to.
+  final String? tabId;
+
+  /// Whether this pane is the one on screen. The others stay mounted, so
+  /// they keep their buffers, but do not take the keyboard.
+  final bool active;
+
+  /// The row of session tabs, shown under the bar.
+  final Widget? tabsBar;
+
+  /// Back goes here (to the host list) and leaves the session open. Without
+  /// it, Back asks to disconnect and closes the screen.
+  final VoidCallback? onBack;
+
+  /// Called when the session has been closed, to remove its tab. Without
+  /// it the screen is popped.
+  final VoidCallback? onClose;
 
   /// Fixed session ID for tests. A new one is generated when null.
   final String? sessionId;
@@ -268,7 +293,28 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     );
   }
 
+  void _reportStatus(SSHConnectionState? state) {
+    final id = widget.tabId;
+    if (id == null) return;
+    ref
+        .read(sessionTabsProvider.notifier)
+        .setStatus(id, tabStatusFor(state, attempted: _attempted));
+  }
+
+  @override
+  void didUpdateWidget(TerminalScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.active != widget.active) {
+      if (widget.active) {
+        _focusNode.requestFocus();
+      } else {
+        _focusNode.unfocus();
+      }
+    }
+  }
+
   void _onConnectionState(SSHConnectionState? state) {
+    _reportStatus(state);
     switch (state?.status) {
       case SSHConnectionStatus.awaitingHostKeyConfirmation:
         final challenge = state?.challenge;
@@ -717,6 +763,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   /// With "Volume keys" on: volume down arms CTRL, volume up sends ↑.
   bool _onHardwareKey(KeyEvent event) {
     if (!mounted ||
+        !widget.active ||
         !ref.read(appSettingsProvider).volumeKeys ||
         ref.read(appLockProvider).locked) {
       return false;
@@ -756,15 +803,35 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
       return;
     }
     await ref.read(sshSessionControllerProvider(_args)).disconnect();
-    if (mounted) {
+    _finish();
+  }
+
+  /// The session is over: remove its tab, or pop the screen.
+  void _finish() {
+    if (!mounted) return;
+    final onClose = widget.onClose;
+    if (onClose != null) {
+      onClose();
+    } else {
       Navigator.of(context).pop();
+    }
+  }
+
+  /// The Back button: to the host list with the session still open, or,
+  /// for a pane that is not in the workspace, the old ask-and-close.
+  void _back() {
+    final onBack = widget.onBack;
+    if (onBack != null) {
+      onBack();
+    } else {
+      unawaited(_leave());
     }
   }
 
   Future<void> _cancel() async {
     await ref.read(sshSessionControllerProvider(_args)).disconnect();
     if (mounted && !_wasConnected) {
-      Navigator.of(context).pop();
+      _finish();
     }
   }
 
@@ -779,7 +846,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
         return AlertDialog(
           title: const Text('Disconnect?'),
           content: Text(
-            'Disconnect from ${_server.label} and close this terminal?',
+            widget.onClose == null
+                ? 'Disconnect from ${_server.label} and close this terminal?'
+                : 'Disconnect from ${_server.label}? Your other sessions '
+                      'stay open.',
           ),
           actions: [
             TextButton(
@@ -802,9 +872,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
       return;
     }
     await ref.read(sshSessionControllerProvider(_args)).disconnect();
-    if (mounted) {
-      Navigator.of(context).pop();
-    }
+    _finish();
   }
 
   ConnectionCardModel? _cardModel(SSHConnectionState? state) {
@@ -886,6 +954,150 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     final card = _cardModel(state);
     final statusColor = _statusColor(state, _attempted);
 
+    final scaffold = Scaffold(
+      backgroundColor: terminalTheme.background,
+      resizeToAvoidBottomInset: true,
+      appBar: _TerminalBar(
+        server: _server,
+        statusColor: statusColor,
+        gridSize: _gridSize,
+        onBack: _back,
+        onSnippets: () => unawaited(_openSnippets()),
+        onSettings: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen())),
+        onLog: _showDetails,
+        onIntegration: () => unawaited(_installShellIntegration()),
+        onDisconnect: () => unawaited(_leave()),
+      ),
+      body: Column(
+        children: [
+          widget.tabsBar ??
+              _SessionTabs(server: _server, statusColor: statusColor),
+          Expanded(
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Listener(
+                    behavior: HitTestBehavior.translucent,
+                    onPointerDown: _onPointerDown,
+                    onPointerMove: _onPointerMove,
+                    onPointerUp: _endPointer,
+                    onPointerCancel: _endPointer,
+                    child: TerminalSelectionOverlay(
+                      terminal: _terminal,
+                      controller: _terminalController,
+                      scrollController: _scrollController,
+                      terminalViewKey: _terminalViewKey,
+                      onPaste: _pasteClipboard,
+                      // TerminalView pads itself by MediaQuery.padding; the
+                      // keyboard bar below already keeps clear of the system
+                      // navigation bar, so the terminal can use every row.
+                      child: MediaQuery.removePadding(
+                        context: context,
+                        removeBottom: true,
+                        child: TerminalView(
+                          _terminal,
+                          key: _terminalViewKey,
+                          controller: _terminalController,
+                          scrollController: _scrollController,
+                          focusNode: _focusNode,
+                          autofocus: widget.active,
+                          deleteDetection: true,
+                          theme: terminalTheme,
+                          cursorType: settings.cursor.type,
+                          textStyle: TerminalStyle(
+                            fontSize: fontSize,
+                            fontFamily: settings.font.fontFamily,
+                            fontFamilyFallback: const [
+                              ...AppFonts.fallback,
+                              'monospace',
+                            ],
+                          ),
+                          keyboardType: TextInputType.text,
+                          onKeyEvent: _onKeyEvent,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: ListenableBuilder(
+                      listenable: _auto,
+                      builder: (context, _) => _GhostText(
+                        controller: _auto,
+                        viewKey: _terminalViewKey,
+                        fontSize: fontSize,
+                        fontFamily: settings.font.fontFamily,
+                      ),
+                    ),
+                  ),
+                ),
+                if (card != null)
+                  Positioned(
+                    top: 12,
+                    left: 12,
+                    right: 12,
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 440),
+                        child: ConnectionCard(
+                          model: card,
+                          onCancel: () => unawaited(_cancel()),
+                          onDetails: _showDetails,
+                          onRetry: () => unawaited(_retry()),
+                          onEditHost: () => unawaited(_editHost()),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          ListenableBuilder(
+            listenable: _auto,
+            builder: (context, _) => SuggestionPanel(
+              suggestions: _auto.suggestions,
+              typed: _auto.line ?? '',
+              onFill: (suggestion) {
+                _auto.accept(suggestion);
+                _focusNode.requestFocus();
+              },
+              onFillAndRun: (suggestion) {
+                _auto.accept(suggestion, enter: true);
+                _focusNode.requestFocus();
+              },
+            ),
+          ),
+          if (_running != null)
+            _SnippetBanner(
+              name: _running!.name,
+              step: _running!.step,
+              total: _running!.total,
+              onStop: _runner.cancel,
+            ),
+          TerminalKeyboardBar(
+            ctrl: _modifiers.ctrl,
+            alt: _modifiers.alt,
+            onToggleCtrl: _modifiers.toggleCtrl,
+            onToggleAlt: _modifiers.toggleAlt,
+            onKey: _sendKey,
+            onText: _sendText,
+            onPaste: () => unawaited(_pasteClipboard()),
+            onSnippets: () => unawaited(_openSnippets()),
+            layout: settings.keyBar,
+            haptics: settings.haptics,
+          ),
+        ],
+      ),
+    );
+
+    // In the workspace Back is handled there (it leaves the sessions open
+    // and goes to the host list), so a hidden pane must not block it.
+    if (widget.onBack != null) {
+      return scaffold;
+    }
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -894,143 +1106,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
         }
         unawaited(_leave());
       },
-      child: Scaffold(
-        backgroundColor: terminalTheme.background,
-        resizeToAvoidBottomInset: true,
-        appBar: _TerminalBar(
-          server: _server,
-          statusColor: statusColor,
-          gridSize: _gridSize,
-          onBack: () => unawaited(_leave()),
-          onSnippets: () => unawaited(_openSnippets()),
-          onSettings: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
-          ),
-          onLog: _showDetails,
-          onIntegration: () => unawaited(_installShellIntegration()),
-          onDisconnect: () => unawaited(_leave()),
-        ),
-        body: Column(
-          children: [
-            _SessionTabs(server: _server, statusColor: statusColor),
-            Expanded(
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: Listener(
-                      behavior: HitTestBehavior.translucent,
-                      onPointerDown: _onPointerDown,
-                      onPointerMove: _onPointerMove,
-                      onPointerUp: _endPointer,
-                      onPointerCancel: _endPointer,
-                      child: TerminalSelectionOverlay(
-                        terminal: _terminal,
-                        controller: _terminalController,
-                        scrollController: _scrollController,
-                        terminalViewKey: _terminalViewKey,
-                        onPaste: _pasteClipboard,
-                        // TerminalView pads itself by MediaQuery.padding; the
-                        // keyboard bar below already keeps clear of the system
-                        // navigation bar, so the terminal can use every row.
-                        child: MediaQuery.removePadding(
-                          context: context,
-                          removeBottom: true,
-                          child: TerminalView(
-                            _terminal,
-                            key: _terminalViewKey,
-                            controller: _terminalController,
-                            scrollController: _scrollController,
-                            focusNode: _focusNode,
-                            autofocus: true,
-                            deleteDetection: true,
-                            theme: terminalTheme,
-                            cursorType: settings.cursor.type,
-                            textStyle: TerminalStyle(
-                              fontSize: fontSize,
-                              fontFamily: settings.font.fontFamily,
-                              fontFamilyFallback: const [
-                                ...AppFonts.fallback,
-                                'monospace',
-                              ],
-                            ),
-                            keyboardType: TextInputType.text,
-                            onKeyEvent: _onKeyEvent,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: ListenableBuilder(
-                        listenable: _auto,
-                        builder: (context, _) => _GhostText(
-                          controller: _auto,
-                          viewKey: _terminalViewKey,
-                          fontSize: fontSize,
-                          fontFamily: settings.font.fontFamily,
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (card != null)
-                    Positioned(
-                      top: 12,
-                      left: 12,
-                      right: 12,
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 440),
-                          child: ConnectionCard(
-                            model: card,
-                            onCancel: () => unawaited(_cancel()),
-                            onDetails: _showDetails,
-                            onRetry: () => unawaited(_retry()),
-                            onEditHost: () => unawaited(_editHost()),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            ListenableBuilder(
-              listenable: _auto,
-              builder: (context, _) => SuggestionPanel(
-                suggestions: _auto.suggestions,
-                typed: _auto.line ?? '',
-                onFill: (suggestion) {
-                  _auto.accept(suggestion);
-                  _focusNode.requestFocus();
-                },
-                onFillAndRun: (suggestion) {
-                  _auto.accept(suggestion, enter: true);
-                  _focusNode.requestFocus();
-                },
-              ),
-            ),
-            if (_running != null)
-              _SnippetBanner(
-                name: _running!.name,
-                step: _running!.step,
-                total: _running!.total,
-                onStop: _runner.cancel,
-              ),
-            TerminalKeyboardBar(
-              ctrl: _modifiers.ctrl,
-              alt: _modifiers.alt,
-              onToggleCtrl: _modifiers.toggleCtrl,
-              onToggleAlt: _modifiers.toggleAlt,
-              onKey: _sendKey,
-              onText: _sendText,
-              onPaste: () => unawaited(_pasteClipboard()),
-              onSnippets: () => unawaited(_openSnippets()),
-              layout: settings.keyBar,
-              haptics: settings.haptics,
-            ),
-          ],
-        ),
-      ),
+      child: scaffold,
     );
   }
 }
