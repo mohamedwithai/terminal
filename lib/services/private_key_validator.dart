@@ -2,8 +2,7 @@ import 'package:dartssh2/dartssh2.dart';
 import 'package:flutter/foundation.dart';
 import 'package:ssh_app/services/vault_exception.dart';
 
-const _invalidKeyMessage =
-    'This is not a valid OpenSSH or PEM private key.';
+const _invalidKeyMessage = 'This is not a valid OpenSSH or PEM private key.';
 
 /// Top-level so [compute] can run it in a background isolate.
 ///

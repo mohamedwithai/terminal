@@ -25,7 +25,7 @@ class ConnectionLogEntry {
 /// to be screenshotted.
 class ConnectionLog {
   ConnectionLog({this.maxEntries = 500, DateTime Function()? clock})
-      : _clock = clock ?? DateTime.now;
+    : _clock = clock ?? DateTime.now;
 
   /// Oldest entries are dropped beyond this many.
   final int maxEntries;

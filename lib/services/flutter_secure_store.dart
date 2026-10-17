@@ -7,13 +7,14 @@ import 'package:ssh_app/services/secure_store.dart';
 /// reconnect can read credentials after the first unlock since boot.
 class FlutterSecureStore implements SecureStore {
   FlutterSecureStore({FlutterSecureStorage? storage})
-      : _storage = storage ??
-            const FlutterSecureStorage(
-              aOptions: AndroidOptions(migrateWithBackup: true),
-              iOptions: IOSOptions(
-                accessibility: KeychainAccessibility.first_unlock,
-              ),
-            );
+    : _storage =
+          storage ??
+          const FlutterSecureStorage(
+            aOptions: AndroidOptions(migrateWithBackup: true),
+            iOptions: IOSOptions(
+              accessibility: KeychainAccessibility.first_unlock,
+            ),
+          );
 
   final FlutterSecureStorage _storage;
 

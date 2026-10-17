@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' if (dart.library.js_interop) 'package:ssh_app/services/ssh/io_stub.dart';
+import 'dart:io'
+    if (dart.library.js_interop) 'package:ssh_app/services/ssh/io_stub.dart';
 import 'dart:typed_data';
 
 import 'package:dartssh2/dartssh2.dart';
@@ -140,9 +141,11 @@ class SSHConnectionSession {
 
     log.add('Connecting to ${server.username}@${server.host}:${server.port}');
     _stage = SSHConnectionStage.loadingCredentials;
-    _emit(const SSHConnectionState.connecting(
-      SSHConnectionStage.loadingCredentials,
-    ));
+    _emit(
+      const SSHConnectionState.connecting(
+        SSHConnectionStage.loadingCredentials,
+      ),
+    );
     try {
       final credentials = await _loadCredentials(loadCredentials);
       _checkCurrent(attempt);
@@ -151,11 +154,13 @@ class SSHConnectionSession {
     } catch (error, stackTrace) {
       final failure = _recordFailure(attempt, error);
       if (_isCurrent(attempt)) {
-        _emit(SSHConnectionState.error(
-          failure.error.message,
-          failure.error,
-          failure.stage,
-        ));
+        _emit(
+          SSHConnectionState.error(
+            failure.error.message,
+            failure.error,
+            failure.stage,
+          ),
+        );
       }
       Error.throwWithStackTrace(failure.error, stackTrace);
     }
@@ -286,7 +291,9 @@ class SSHConnectionSession {
             },
           );
           if (!accepted || settled || !_isCurrent(attempt)) return false;
-          log.add(askedUser ? 'Host key saved' : 'Host key matches the saved key');
+          log.add(
+            askedUser ? 'Host key saved' : 'Host key matches the saved key',
+          );
           _enterStage(attempt, SSHConnectionStage.authenticating);
           log.add(
             'Authenticating as ${server.username} '
@@ -335,7 +342,9 @@ class SSHConnectionSession {
         throw hostKeyChangedError!;
       }
       if (hostKeyRejected) {
-        throw const SSHHostKeyRejectedException('Host key was rejected by the user.');
+        throw const SSHHostKeyRejectedException(
+          'Host key was rejected by the user.',
+        );
       }
       if (hostKeyCheckError != null) {
         throw SSHHandshakeException(
@@ -372,14 +381,18 @@ class SSHConnectionSession {
     }
     final keyPem = credentials.privateKey?.trim() ?? '';
     if (keyPem.isEmpty) {
-      throw const SSHAuthFailedException('Missing private key for authentication.');
+      throw const SSHAuthFailedException(
+        'Missing private key for authentication.',
+      );
     }
     log.add('Decoding private key');
     final List<SSHKeyPair> identities;
     try {
       identities = SSHKeyPair.fromPem(
         keyPem,
-        credentials.passphrase?.isNotEmpty == true ? credentials.passphrase : null,
+        credentials.passphrase?.isNotEmpty == true
+            ? credentials.passphrase
+            : null,
       );
     } catch (e) {
       throw SSHAuthFailedException('Could not parse private key: $e', e);
@@ -401,10 +414,12 @@ class SSHConnectionSession {
       return await pending.timeout(connectTimeout);
     } on TimeoutException catch (e) {
       // The connect may still succeed later; do not leak that socket.
-      unawaited(pending.then<void>(
-        (socket) => socket.destroy(),
-        onError: (Object _) {},
-      ));
+      unawaited(
+        pending.then<void>(
+          (socket) => socket.destroy(),
+          onError: (Object _) {},
+        ),
+      );
       throw SSHTimeoutException(_tcpTimeoutMessage(), e);
     } catch (e) {
       throw _mapException(e);
@@ -491,10 +506,12 @@ class SSHConnectionSession {
       'Reconnecting in ${_formatDuration(delay)} '
       '(attempt $attemptNumber of ${reconnectDelays.length})',
     );
-    _emit(SSHConnectionState.reconnecting(
-      reconnectAttempt: attemptNumber,
-      maxReconnectAttempts: reconnectDelays.length,
-    ));
+    _emit(
+      SSHConnectionState.reconnecting(
+        reconnectAttempt: attemptNumber,
+        maxReconnectAttempts: reconnectDelays.length,
+      ),
+    );
     _reconnectTimer = Timer(delay, _runReconnectAttempt);
   }
 
@@ -508,11 +525,13 @@ class SSHConnectionSession {
     }
     _waitingFor = reason;
     log.add('Waiting for $reason before reconnecting');
-    _emit(SSHConnectionState.reconnecting(
-      reconnectAttempt: 0,
-      maxReconnectAttempts: reconnectDelays.length,
-      waitingFor: reason,
-    ));
+    _emit(
+      SSHConnectionState.reconnecting(
+        reconnectAttempt: 0,
+        maxReconnectAttempts: reconnectDelays.length,
+        waitingFor: reason,
+      ),
+    );
   }
 
   void _onGateChanged() {
@@ -579,10 +598,7 @@ class SSHConnectionSession {
   /// returned, so the status screen can open it and the terminal can take it
   /// over. A second call while one is opening waits for that one. The shell
   /// is closed when the connection is rebuilt.
-  Future<SSHSession> openShell({
-    int columns = 80,
-    int rows = 24,
-  }) {
+  Future<SSHSession> openShell({int columns = 80, int rows = 24}) {
     final pending = _openingShell;
     if (pending != null) {
       return pending;
@@ -622,10 +638,9 @@ class SSHConnectionSession {
     try {
       shell = await pending.timeout(shellTimeout);
     } on TimeoutException catch (e) {
-      unawaited(pending.then<void>(
-        (orphan) => orphan.close(),
-        onError: (Object _) {},
-      ));
+      unawaited(
+        pending.then<void>((orphan) => orphan.close(), onError: (Object _) {}),
+      );
       final error = SSHTimeoutException(
         'Timed out after ${_formatDuration(shellTimeout)} opening the shell. '
         'The server did not answer the shell request.',
@@ -646,10 +661,12 @@ class SSHConnectionSession {
     }
     _shell = shell;
     log.add('Shell open');
-    unawaited(shell.done.then<void>(
-      (_) => _forgetShell(shell),
-      onError: (Object _) => _forgetShell(shell),
-    ));
+    unawaited(
+      shell.done.then<void>(
+        (_) => _forgetShell(shell),
+        onError: (Object _) => _forgetShell(shell),
+      ),
+    );
     return shell;
   }
 
@@ -687,7 +704,9 @@ class SSHConnectionSession {
   Future<String> execute(String command) async {
     final client = _client;
     if (client == null || !isConnected) {
-      throw const SSHUnexpectedDisconnectException('Cannot execute command: Not connected.');
+      throw const SSHUnexpectedDisconnectException(
+        'Cannot execute command: Not connected.',
+      );
     }
 
     final session = await client.execute(command);
@@ -761,11 +780,13 @@ class SSHConnectionSession {
     if (!_isCurrent(attempt)) return;
     _stage = stage;
     if (_state.status == SSHConnectionStatus.reconnecting) {
-      _emit(SSHConnectionState.reconnecting(
-        reconnectAttempt: _state.reconnectAttempt,
-        maxReconnectAttempts: _state.maxReconnectAttempts,
-        stage: stage,
-      ));
+      _emit(
+        SSHConnectionState.reconnecting(
+          reconnectAttempt: _state.reconnectAttempt,
+          maxReconnectAttempts: _state.maxReconnectAttempts,
+          stage: stage,
+        ),
+      );
     } else {
       _emit(SSHConnectionState.connecting(stage));
     }
@@ -813,9 +834,10 @@ class SSHConnectionSession {
       SSHConnectionStage.authenticating =>
         'Timed out after $limit while authenticating. '
             'The server did not answer the sign-in request.',
-      _ => 'Timed out after $limit while exchanging keys. The TCP connection '
-          'opened but the SSH handshake did not finish. Check that '
-          '${server.host}:${server.port} is an SSH server.',
+      _ =>
+        'Timed out after $limit while exchanging keys. The TCP connection '
+            'opened but the SSH handshake did not finish. Check that '
+            '${server.host}:${server.port} is an SSH server.',
     };
   }
 
@@ -856,7 +878,8 @@ class SSHConnectionSession {
     if (error is SocketException) {
       final msg = error.message.toLowerCase();
       final osMsg = error.osError?.message.toLowerCase() ?? '';
-      if (msg.contains('failed host lookup') || osMsg.contains('no such host')) {
+      if (msg.contains('failed host lookup') ||
+          osMsg.contains('no such host')) {
         return SSHDnsException('DNS lookup failed for ${server.host}.', error);
       }
       if (msg.contains('refused') || osMsg.contains('refused')) {
@@ -871,7 +894,10 @@ class SSHConnectionSession {
       if (msg.contains('unreachable') ||
           osMsg.contains('unreachable') ||
           osMsg.contains('no route')) {
-        return SSHUnreachableException('Network unreachable to ${server.host}.', error);
+        return SSHUnreachableException(
+          'Network unreachable to ${server.host}.',
+          error,
+        );
       }
       return SSHConnectionRefusedException('Socket error: $error', error);
     }

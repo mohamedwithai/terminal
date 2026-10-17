@@ -103,8 +103,7 @@ class ServerConfig {
     if (trimmedHost.isEmpty) {
       errors['host'] = 'Enter a hostname or IP address.';
     } else if (!isValidHost(trimmedHost)) {
-      errors['host'] =
-          'Enter a valid hostname, IPv4 address, or IPv6 address.';
+      errors['host'] = 'Enter a valid hostname, IPv4 address, or IPv6 address.';
     }
     if (port < 1 || port > 65535) {
       errors['port'] = 'Enter a port from 1 to 65535.';
@@ -112,7 +111,8 @@ class ServerConfig {
     final trimmedUser = username.trim();
     if (trimmedUser.isEmpty) {
       errors['username'] = 'Enter the SSH username.';
-    } else if (trimmedUser.length > 128 || RegExp(r'\s').hasMatch(trimmedUser)) {
+    } else if (trimmedUser.length > 128 ||
+        RegExp(r'\s').hasMatch(trimmedUser)) {
       errors['username'] = 'Enter a username without spaces.';
     }
     return errors;
@@ -199,18 +199,18 @@ class ServerConfig {
 
   @override
   int get hashCode => Object.hash(
-        id,
-        label,
-        host,
-        port,
-        username,
-        authType,
-        createdAt.toUtc(),
-        updatedAt.toUtc(),
-        Object.hashAll(tags),
-        lastConnectedAt?.toUtc(),
-        keyId,
-      );
+    id,
+    label,
+    host,
+    port,
+    username,
+    authType,
+    createdAt.toUtc(),
+    updatedAt.toUtc(),
+    Object.hashAll(tags),
+    lastConnectedAt?.toUtc(),
+    keyId,
+  );
 
   @override
   String toString() {
@@ -238,7 +238,10 @@ List<String> _optionalTags(Object? value) {
   if (value is! List) {
     return const [];
   }
-  return [for (final tag in value) if (tag is String) tag];
+  return [
+    for (final tag in value)
+      if (tag is String) tag,
+  ];
 }
 
 DateTime? _optionalDate(Object? value) {

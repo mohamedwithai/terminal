@@ -9,7 +9,9 @@ String groupFingerprint(String fingerprint, {int size = 4}) {
   final body = colon < 0 ? fingerprint : fingerprint.substring(colon + 1);
   final groups = <String>[];
   for (var i = 0; i < body.length; i += size) {
-    groups.add(body.substring(i, i + size > body.length ? body.length : i + size));
+    groups.add(
+      body.substring(i, i + size > body.length ? body.length : i + size),
+    );
   }
   return groups.join(' ');
 }
@@ -123,7 +125,10 @@ class _HostKeySheetState extends State<HostKeySheet> {
               ),
               const SizedBox(width: 14),
               Expanded(
-                child: Text('Trust this host?', style: theme.textTheme.titleLarge),
+                child: Text(
+                  'Trust this host?',
+                  style: theme.textTheme.titleLarge,
+                ),
               ),
             ],
           ),

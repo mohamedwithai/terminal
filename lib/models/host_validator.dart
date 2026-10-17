@@ -73,11 +73,7 @@ bool _isValidHostname(String s) {
 }
 
 class ParsedHostInput {
-  const ParsedHostInput({
-    this.username,
-    required this.host,
-    this.port,
-  });
+  const ParsedHostInput({this.username, required this.host, this.port});
 
   final String? username;
   final String host;
@@ -128,11 +124,7 @@ ParsedHostInput? parseHostInput(String raw) {
   }
 
   if (username != null || port != null) {
-    return ParsedHostInput(
-      username: username,
-      host: host,
-      port: port,
-    );
+    return ParsedHostInput(username: username, host: host, port: port);
   }
   return null;
 }

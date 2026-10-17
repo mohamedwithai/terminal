@@ -43,8 +43,8 @@ final vaultServiceProvider = Provider<VaultService>((ref) {
 /// Saved servers, without their credentials.
 final serverListProvider =
     AsyncNotifierProvider<ServerListNotifier, List<ServerConfig>>(
-  ServerListNotifier.new,
-);
+      ServerListNotifier.new,
+    );
 
 class ServerListNotifier extends AsyncNotifier<List<ServerConfig>> {
   /// Set once keys pasted into individual servers have been moved into the
@@ -80,8 +80,9 @@ class ServerListNotifier extends AsyncNotifier<List<ServerConfig>> {
 
   /// Notes a successful connection, for "last connected" on the list.
   Future<void> recordConnected(String id, DateTime at) async {
-    final updated =
-        await ref.read(vaultServiceProvider).recordConnected(id, at);
+    final updated = await ref
+        .read(vaultServiceProvider)
+        .recordConnected(id, at);
     final current = state.asData?.value;
     if (updated != null && current != null) {
       state = AsyncData([
@@ -102,8 +103,8 @@ class ServerListNotifier extends AsyncNotifier<List<ServerConfig>> {
 
 final knownHostListProvider =
     AsyncNotifierProvider<KnownHostListNotifier, List<KnownHost>>(
-  KnownHostListNotifier.new,
-);
+      KnownHostListNotifier.new,
+    );
 
 /// Accepted host keys. The Phase 2 connection flow reads this list.
 class KnownHostListNotifier extends AsyncNotifier<List<KnownHost>> {
@@ -127,8 +128,8 @@ class KnownHostListNotifier extends AsyncNotifier<List<KnownHost>> {
 /// pasted keys has finished, and reloads when servers change.
 final keyListProvider =
     AsyncNotifierProvider<KeyListNotifier, List<SshKeyRecord>>(
-  KeyListNotifier.new,
-);
+      KeyListNotifier.new,
+    );
 
 class KeyListNotifier extends AsyncNotifier<List<SshKeyRecord>> {
   @override
@@ -170,7 +171,9 @@ class KeyListNotifier extends AsyncNotifier<List<SshKeyRecord>> {
 /// if nothing was chosen. Tests replace it.
 final keyFilePickerProvider = Provider<Future<String?> Function()>((ref) {
   return () async {
-    final files = await FilePicker.pickFiles(dialogTitle: 'Choose a private key');
+    final files = await FilePicker.pickFiles(
+      dialogTitle: 'Choose a private key',
+    );
     if (files.isEmpty) {
       return null;
     }
@@ -191,7 +194,9 @@ final keyFilePickerProvider = Provider<Future<String?> Function()>((ref) {
 /// Opens the system share sheet with [text]. Tests replace it.
 final shareTextProvider =
     Provider<Future<void> Function(String text, String subject)>((ref) {
-  return (text, subject) async {
-    await SharePlus.instance.share(ShareParams(text: text, subject: subject));
-  };
-});
+      return (text, subject) async {
+        await SharePlus.instance.share(
+          ShareParams(text: text, subject: subject),
+        );
+      };
+    });

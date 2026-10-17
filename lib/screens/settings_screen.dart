@@ -53,12 +53,11 @@ class SettingsScreen extends ConsumerWidget {
             value: settings.fontSize,
             min: AppSettings.minFontSize,
             max: AppSettings.maxFontSize,
-            divisions:
-                (AppSettings.maxFontSize - AppSettings.minFontSize).round(),
+            divisions: (AppSettings.maxFontSize - AppSettings.minFontSize)
+                .round(),
             label: '${settings.fontSize.round()}',
-            onChanged: (size) => notifier.update(
-              (current) => current.copyWith(fontSize: size),
-            ),
+            onChanged: (size) =>
+                notifier.update((current) => current.copyWith(fontSize: size)),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -77,9 +76,7 @@ class SettingsScreen extends ConsumerWidget {
                       (current) => current.copyWith(hostFontSizes: const {}),
                     ),
                     child: Text(
-                      perHost == 1
-                          ? 'Reset 1 host'
-                          : 'Reset $perHost hosts',
+                      perHost == 1 ? 'Reset 1 host' : 'Reset $perHost hosts',
                     ),
                   ),
               ],
@@ -117,9 +114,8 @@ class SettingsScreen extends ConsumerWidget {
                 title: const Text('Haptic feedback'),
                 subtitle: const Text('A light tap on every key'),
                 value: settings.haptics,
-                onChanged: (on) => notifier.update(
-                  (current) => current.copyWith(haptics: on),
-                ),
+                onChanged: (on) =>
+                    notifier.update((current) => current.copyWith(haptics: on)),
               ),
             ],
           ),
@@ -146,10 +142,8 @@ class SettingsScreen extends ConsumerWidget {
               ListTile(
                 title: const Text('Open source licenses'),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => showLicensePage(
-                  context: context,
-                  applicationName: 'SSH',
-                ),
+                onTap: () =>
+                    showLicensePage(context: context, applicationName: 'SSH'),
               ),
             ],
           ),
@@ -252,7 +246,10 @@ class TerminalPreview extends StatelessWidget {
       TextSpan(
         children: [
           for (final (text, color) in parts)
-            TextSpan(text: text, style: TextStyle(color: color)),
+            TextSpan(
+              text: text,
+              style: TextStyle(color: color),
+            ),
         ],
       ),
     );
@@ -307,7 +304,11 @@ class _ThemeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = id.theme;
-    const mono = TextStyle(fontFamily: AppFonts.mono, fontSize: 11, height: 1.3);
+    const mono = TextStyle(
+      fontFamily: AppFonts.mono,
+      fontSize: 11,
+      height: 1.3,
+    );
     return Semantics(
       selected: selected,
       button: true,

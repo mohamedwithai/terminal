@@ -11,7 +11,7 @@ class VaultException implements Exception {
 /// The add/edit form rejected a server before anything was written.
 class VaultValidationException extends VaultException {
   VaultValidationException(this.fieldErrors)
-      : super('Some server details are invalid.');
+    : super('Some server details are invalid.');
 
   /// Form field name to a message the user can act on.
   final Map<String, String> fieldErrors;

@@ -10,7 +10,9 @@ class PausableDeadline {
   PausableDeadline(Duration limit)
     : _remaining = limit,
       _tick = limit < const Duration(seconds: 1)
-          ? Duration(microseconds: (limit.inMicroseconds ~/ 10).clamp(1000, 100000))
+          ? Duration(
+              microseconds: (limit.inMicroseconds ~/ 10).clamp(1000, 100000),
+            )
           : const Duration(milliseconds: 100) {
     _timer = Timer.periodic(_tick, _onTick);
   }

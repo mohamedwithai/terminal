@@ -17,10 +17,8 @@ Future<void> showConnectionLogSheet(
       expand: false,
       initialChildSize: 0.6,
       maxChildSize: 0.95,
-      builder: (context, scroll) => PrimaryScrollController(
-        controller: scroll,
-        child: builder(context),
-      ),
+      builder: (context, scroll) =>
+          PrimaryScrollController(controller: scroll, child: builder(context)),
     ),
   );
 }
@@ -35,9 +33,9 @@ class ConnectionLogView extends StatelessWidget {
       ClipboardData(text: entries.map((entry) => '$entry').join('\n')),
     );
     if (context.mounted) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(content: Text('Connection log copied')),
-      );
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(const SnackBar(content: Text('Connection log copied')));
     }
   }
 
@@ -58,7 +56,10 @@ class ConnectionLogView extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: Text('Connection log', style: theme.textTheme.titleMedium),
+                child: Text(
+                  'Connection log',
+                  style: theme.textTheme.titleMedium,
+                ),
               ),
               TextButton.icon(
                 onPressed: entries.isEmpty ? null : () => _copy(context),

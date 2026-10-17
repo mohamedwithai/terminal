@@ -157,7 +157,13 @@ KeyInfo inspectPrivateKey(
   );
 }
 
-({String? error, String? type, String? publicKey, String? fingerprint, bool encrypted})
+({
+  String? error,
+  String? type,
+  String? publicKey,
+  String? fingerprint,
+  bool encrypted,
+})
 _inspectEntry((String, String?, String) args) {
   try {
     final info = inspectPrivateKey(args.$1, args.$2, comment: args.$3);
@@ -185,7 +191,11 @@ Future<KeyInfo> inspectPrivateKeyInBackground(
   String? passphrase, {
   String comment = '',
 }) async {
-  final result = await compute(_inspectEntry, (privateKey, passphrase, comment));
+  final result = await compute(_inspectEntry, (
+    privateKey,
+    passphrase,
+    comment,
+  ));
   final error = result.error;
   if (error != null) {
     throw FormatException(error);
@@ -245,9 +255,7 @@ GeneratedKey generateKey(
   return GeneratedKey(
     privateKey: pem,
     info: KeyInfo(
-      type: algorithm == KeyAlgorithm.ed25519
-          ? 'Ed25519'
-          : 'RSA $rsaBits',
+      type: algorithm == KeyAlgorithm.ed25519 ? 'Ed25519' : 'RSA $rsaBits',
       publicKey: openSshPublicKeyLine(pair, comment),
       fingerprint: sshFingerprint(pair.toPublicKey().encode()),
       encrypted: secret != null,
@@ -263,7 +271,13 @@ pc.SecureRandom _secureRandom() {
   return pc.FortunaRandom()..seed(pc.KeyParameter(seed));
 }
 
-({String privateKey, String type, String publicKey, String fingerprint, bool encrypted})
+({
+  String privateKey,
+  String type,
+  String publicKey,
+  String fingerprint,
+  bool encrypted,
+})
 _generateEntry((int, String?, String, int) args) {
   final key = generateKey(
     KeyAlgorithm.values[args.$1],

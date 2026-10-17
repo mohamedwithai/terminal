@@ -43,9 +43,7 @@ class KeysScreen extends ConsumerWidget {
             ? _Empty(onAdd: () => _chooseHowToAdd(context))
             : ListView(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 104),
-                children: [
-                  for (final key in items) _KeyCard(record: key),
-                ],
+                children: [for (final key in items) _KeyCard(record: key)],
               ),
       ),
     );
@@ -54,9 +52,9 @@ class KeysScreen extends ConsumerWidget {
   void _chooseHowToAdd(BuildContext context) {
     void open(KeyAddMode mode) {
       Navigator.of(context).pop();
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => AddKeyScreen(mode: mode)),
-      );
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => AddKeyScreen(mode: mode)));
     }
 
     showModalBottomSheet<void>(
@@ -199,7 +197,11 @@ class _Empty extends StatelessWidget {
                 borderRadius: BorderRadius.circular(AppRadii.card),
                 border: Border.all(color: AppColors.border),
               ),
-              child: const Icon(Icons.key_outlined, color: AppColors.accent, size: 30),
+              child: const Icon(
+                Icons.key_outlined,
+                color: AppColors.accent,
+                size: 30,
+              ),
             ),
             const SizedBox(height: 16),
             Text('No keys yet', style: theme.textTheme.titleLarge),
@@ -208,7 +210,9 @@ class _Empty extends StatelessWidget {
               'Generate a key here, or import one, then pick it for any host '
               'instead of pasting it each time.',
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(color: AppColors.muted),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: AppColors.muted,
+              ),
             ),
             const SizedBox(height: 20),
             FilledButton.icon(

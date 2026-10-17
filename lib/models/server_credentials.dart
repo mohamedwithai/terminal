@@ -1,10 +1,6 @@
 /// Secrets for one server. Stored only in the platform secure store.
 class ServerCredentials {
-  const ServerCredentials({
-    this.password,
-    this.privateKey,
-    this.passphrase,
-  });
+  const ServerCredentials({this.password, this.privateKey, this.passphrase});
 
   factory ServerCredentials.fromJson(Map<String, dynamic> json) {
     return ServerCredentials(
@@ -30,11 +26,15 @@ class ServerCredentials {
     Object? passphrase = _unset,
   }) {
     return ServerCredentials(
-      password: identical(password, _unset) ? this.password : password as String?,
-      privateKey:
-          identical(privateKey, _unset) ? this.privateKey : privateKey as String?,
-      passphrase:
-          identical(passphrase, _unset) ? this.passphrase : passphrase as String?,
+      password: identical(password, _unset)
+          ? this.password
+          : password as String?,
+      privateKey: identical(privateKey, _unset)
+          ? this.privateKey
+          : privateKey as String?,
+      passphrase: identical(passphrase, _unset)
+          ? this.passphrase
+          : passphrase as String?,
     );
   }
 

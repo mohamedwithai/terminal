@@ -14,8 +14,18 @@ String formatRelativeTime(DateTime time, DateTime now) {
     return '${elapsed.inDays}d ago';
   }
   const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
   final local = time.toLocal();
   final year = local.year == now.toLocal().year ? '' : ' ${local.year}';

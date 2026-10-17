@@ -50,10 +50,7 @@ class _HomeScreenState extends State<HomeScreen> {
             selectedIcon: Icon(Icons.key),
             label: 'Keys',
           ),
-          NavigationDestination(
-            icon: Icon(Icons.code),
-            label: 'Snippets',
-          ),
+          NavigationDestination(icon: Icon(Icons.code), label: 'Snippets'),
           NavigationDestination(
             icon: Icon(Icons.folder_outlined),
             selectedIcon: Icon(Icons.folder),

@@ -11,9 +11,9 @@ enum AuthType {
 
   /// Label shown on the server list and the add/edit form.
   String get label => switch (this) {
-        AuthType.password => 'Password',
-        AuthType.privateKey => 'Private key',
-      };
+    AuthType.password => 'Password',
+    AuthType.privateKey => 'Private key',
+  };
 
   /// Reads a value previously written by [Enum.name].
   static AuthType parse(String value) {

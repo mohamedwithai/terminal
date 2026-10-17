@@ -377,7 +377,7 @@ class _HostRow extends ConsumerWidget {
                                   ? '$auth · Never connected'
                                   : '$auth · Last connected '
                                         '${formatRelativeTime(connected, now)}',
-                              maxLines: 1,
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.bodySmall,
                             ),
@@ -510,9 +510,8 @@ class _NoMatches extends StatelessWidget {
       child: Text(
         'No hosts match.',
         textAlign: TextAlign.center,
-        style: Theme.of(
-          context,
-        ).textTheme.bodyMedium?.copyWith(color: AppColors.muted),
+        style: Theme.of(context).textTheme.bodyMedium
+            ?.copyWith(color: AppColors.muted),
       ),
     );
   }

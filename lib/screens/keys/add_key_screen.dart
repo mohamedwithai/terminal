@@ -33,7 +33,8 @@ class _AddKeyScreenState extends ConsumerState<AddKeyScreen> {
   Map<String, String> _errors = {};
 
   bool get _generating =>
-      widget.mode == KeyAddMode.generate || widget.mode == KeyAddMode.generateRsa;
+      widget.mode == KeyAddMode.generate ||
+      widget.mode == KeyAddMode.generateRsa;
 
   @override
   void initState() {
@@ -147,9 +148,10 @@ class _AddKeyScreenState extends ConsumerState<AddKeyScreen> {
         setState(() {
           _errors = {
             error.message.contains('passphrase') ||
-                    error.message.contains('encrypted')
-                ? 'passphrase'
-                : 'privateKey': error.message,
+                        error.message.contains('encrypted')
+                    ? 'passphrase'
+                    : 'privateKey':
+                error.message,
           };
         });
       }
@@ -252,13 +254,16 @@ class _AddKeyScreenState extends ConsumerState<AddKeyScreen> {
                   : 'Only if the key is encrypted.',
               errorText: _errors['passphrase'],
               suffixIcon: IconButton(
-                tooltip: _hidePassphrase ? 'Show passphrase' : 'Hide passphrase',
+                tooltip: _hidePassphrase
+                    ? 'Show passphrase'
+                    : 'Hide passphrase',
                 icon: Icon(
                   _hidePassphrase
                       ? Icons.visibility_outlined
                       : Icons.visibility_off_outlined,
                 ),
-                onPressed: () => setState(() => _hidePassphrase = !_hidePassphrase),
+                onPressed: () =>
+                    setState(() => _hidePassphrase = !_hidePassphrase),
               ),
             ),
             onChanged: (_) => setState(() => _errors.remove('passphrase')),
@@ -297,7 +302,9 @@ class _AddKeyScreenState extends ConsumerState<AddKeyScreen> {
               padding: const EdgeInsets.only(top: 8),
               child: Text(
                 'Secure storage needs HTTPS. Saving is disabled.',
-                style: theme.textTheme.bodySmall?.copyWith(color: AppColors.error),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: AppColors.error,
+                ),
               ),
             ),
         ],

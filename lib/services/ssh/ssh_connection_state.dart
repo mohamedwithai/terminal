@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:ssh_app/services/ssh/ssh_errors.dart';
 
 enum SSHConnectionStatus {
@@ -71,44 +72,44 @@ class SSHConnectionState {
   });
 
   const SSHConnectionState.disconnected()
-      : status = SSHConnectionStatus.disconnected,
-        challenge = null,
-        reconnectAttempt = 0,
-        maxReconnectAttempts = 3,
-        error = null,
-        errorMessage = null,
-        stage = null,
-        waitingFor = null;
+    : status = SSHConnectionStatus.disconnected,
+      challenge = null,
+      reconnectAttempt = 0,
+      maxReconnectAttempts = 3,
+      error = null,
+      errorMessage = null,
+      stage = null,
+      waitingFor = null;
 
   const SSHConnectionState.connecting([
     this.stage = SSHConnectionStage.openingConnection,
-  ])  : status = SSHConnectionStatus.connecting,
-        challenge = null,
-        reconnectAttempt = 0,
-        maxReconnectAttempts = 3,
-        error = null,
-        errorMessage = null,
-        waitingFor = null;
+  ]) : status = SSHConnectionStatus.connecting,
+       challenge = null,
+       reconnectAttempt = 0,
+       maxReconnectAttempts = 3,
+       error = null,
+       errorMessage = null,
+       waitingFor = null;
 
   const SSHConnectionState.awaitingHostKeyConfirmation(
     HostKeyChallenge this.challenge,
-  )   : status = SSHConnectionStatus.awaitingHostKeyConfirmation,
-        reconnectAttempt = 0,
-        maxReconnectAttempts = 3,
-        error = null,
-        errorMessage = null,
-        stage = SSHConnectionStage.verifyingHostKey,
-        waitingFor = null;
+  ) : status = SSHConnectionStatus.awaitingHostKeyConfirmation,
+      reconnectAttempt = 0,
+      maxReconnectAttempts = 3,
+      error = null,
+      errorMessage = null,
+      stage = SSHConnectionStage.verifyingHostKey,
+      waitingFor = null;
 
   const SSHConnectionState.connected()
-      : status = SSHConnectionStatus.connected,
-        challenge = null,
-        reconnectAttempt = 0,
-        maxReconnectAttempts = 3,
-        error = null,
-        errorMessage = null,
-        stage = null,
-        waitingFor = null;
+    : status = SSHConnectionStatus.connected,
+      challenge = null,
+      reconnectAttempt = 0,
+      maxReconnectAttempts = 3,
+      error = null,
+      errorMessage = null,
+      stage = null,
+      waitingFor = null;
 
   /// [reconnectAttempt] is 0 while the reconnect waits for [waitingFor].
   const SSHConnectionState.reconnecting({
@@ -116,22 +117,19 @@ class SSHConnectionState {
     this.maxReconnectAttempts = 3,
     this.stage,
     this.waitingFor,
-  })  : status = SSHConnectionStatus.reconnecting,
-        challenge = null,
-        error = null,
-        errorMessage = null;
+  }) : status = SSHConnectionStatus.reconnecting,
+       challenge = null,
+       error = null,
+       errorMessage = null;
 
   /// [stage] is the step that failed, when the failure happened mid-attempt.
-  const SSHConnectionState.error(
-    String message, [
-    this.error,
-    this.stage,
-  ])  : status = SSHConnectionStatus.error,
-        challenge = null,
-        reconnectAttempt = 0,
-        maxReconnectAttempts = 3,
-        errorMessage = message,
-        waitingFor = null;
+  const SSHConnectionState.error(String message, [this.error, this.stage])
+    : status = SSHConnectionStatus.error,
+      challenge = null,
+      reconnectAttempt = 0,
+      maxReconnectAttempts = 3,
+      errorMessage = message,
+      waitingFor = null;
 
   final SSHConnectionStatus status;
   final HostKeyChallenge? challenge;

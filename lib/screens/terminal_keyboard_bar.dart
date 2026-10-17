@@ -131,7 +131,9 @@ List<List<List<BarKey>>> keyBarPages(KeyBarLayout layout) {
       [keyBarRows[0], keyBarRows[1]],
       [keyBarRows[2], keyBarRows[3]],
     ],
-    KeyBarLayout.oneRow => [for (final row in keyBarRows) [row]],
+    KeyBarLayout.oneRow => [
+      for (final row in keyBarRows) [row],
+    ],
   };
 }
 
@@ -379,7 +381,11 @@ class _ModifierKey extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (background, border, foreground) = switch (latch) {
-      ModifierLatch.off => (AppColors.surface, AppColors.border, AppColors.text),
+      ModifierLatch.off => (
+        AppColors.surface,
+        AppColors.border,
+        AppColors.text,
+      ),
       ModifierLatch.once => (
         AppColors.accentSoft,
         AppColors.accent,
@@ -411,7 +417,12 @@ class _ModifierKey extends StatelessWidget {
             ),
             if (latch == ModifierLatch.locked) ...[
               const SizedBox(width: 2),
-              Icon(Icons.lock, size: 11, color: foreground, semanticLabel: 'locked'),
+              Icon(
+                Icons.lock,
+                size: 11,
+                color: foreground,
+                semanticLabel: 'locked',
+              ),
             ],
           ],
         ),
@@ -446,7 +457,9 @@ class _KeyFace extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onPressed,
-          child: Center(child: FittedBox(fit: BoxFit.scaleDown, child: child)),
+          child: Center(
+            child: FittedBox(fit: BoxFit.scaleDown, child: child),
+          ),
         ),
       ),
     );

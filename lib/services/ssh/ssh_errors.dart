@@ -52,11 +52,11 @@ class SSHHostKeyChangedException extends SSHConnectionException {
     required this.presentedFingerprint,
     required this.keyType,
   }) : super(
-          'WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED for $host:$port!\n'
-          'Expected: $expectedFingerprint\n'
-          'Presented: $presentedFingerprint ($keyType)\n'
-          'Someone could be eavesdropping on you (man-in-the-middle attack).',
-        );
+         'WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED for $host:$port!\n'
+         'Expected: $expectedFingerprint\n'
+         'Presented: $presentedFingerprint ($keyType)\n'
+         'Someone could be eavesdropping on you (man-in-the-middle attack).',
+       );
 
   final String host;
   final int port;

@@ -41,7 +41,7 @@ then work stops for a phone test. The next milestone starts on "next"
 See `docs/SIGNING.md`. The CI release certificate SHA-256 matches the
 keystore (`5fa08f91…e73433c0`).
 
-## Milestone H: UI/UX and design system
+## Milestone H: UI/UX and design system *(done except icon and splash, which wait for a name)*
 
 Tokens live in one theme file and are used everywhere:
 

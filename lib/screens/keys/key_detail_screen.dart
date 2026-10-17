@@ -3,13 +3,18 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ssh_app/models/ssh_key_record.dart';
 import 'package:ssh_app/providers/vault_providers.dart';
+import 'package:ssh_app/screens/widgets/text_prompt_dialog.dart';
 import 'package:ssh_app/services/vault_exception.dart';
 import 'package:ssh_app/theme/tokens.dart';
 
 /// One saved key: its public key to copy or share, its fingerprint, and
 /// which hosts use it.
 class KeyDetailScreen extends ConsumerWidget {
-  const KeyDetailScreen({super.key, required this.keyId, this.justCreated = false});
+  const KeyDetailScreen({
+    super.key,
+    required this.keyId,
+    this.justCreated = false,
+  });
 
   final String keyId;
 
@@ -19,7 +24,9 @@ class KeyDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final keys = ref.watch(keyListProvider);
-    final record = keys.asData?.value.where((key) => key.id == keyId).firstOrNull;
+    final record = keys.asData?.value
+        .where((key) => key.id == keyId)
+        .firstOrNull;
     if (record == null) {
       return Scaffold(
         appBar: AppBar(),
@@ -31,7 +38,8 @@ class KeyDetailScreen extends ConsumerWidget {
       );
     }
     final users = [
-      for (final server in ref.watch(serverListProvider).asData?.value ?? const [])
+      for (final server
+          in ref.watch(serverListProvider).asData?.value ?? const [])
         if (server.keyId == keyId) server,
     ];
     return Scaffold(
@@ -50,7 +58,8 @@ class KeyDetailScreen extends ConsumerWidget {
         children: [
           if (justCreated)
             _Banner(
-              text: 'Key saved. Add the public key below to '
+              text:
+                  'Key saved. Add the public key below to '
                   '~/.ssh/authorized_keys on each server, then pick this key '
                   'in the host settings.',
             ),
@@ -60,10 +69,7 @@ class KeyDetailScreen extends ConsumerWidget {
               children: [
                 _Row('Type', record.type),
                 const Divider(),
-                _Row(
-                  'Passphrase',
-                  record.encrypted ? 'Protected' : 'None',
-                ),
+                _Row('Passphrase', record.encrypted ? 'Protected' : 'None'),
                 const Divider(),
                 _Row('Created', _date(record.createdAt)),
               ],
@@ -86,9 +92,8 @@ class KeyDetailScreen extends ConsumerWidget {
           if (users.isEmpty)
             Text(
               'No host uses this key yet.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: AppColors.muted,
-              ),
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(color: AppColors.muted),
             )
           else
             Card(
@@ -124,7 +129,11 @@ class KeyDetailScreen extends ConsumerWidget {
     return '${local.year}-${two(local.month)}-${two(local.day)}';
   }
 
-  Future<void> _share(BuildContext context, WidgetRef ref, SshKeyRecord record) async {
+  Future<void> _share(
+    BuildContext context,
+    WidgetRef ref,
+    SshKeyRecord record,
+  ) async {
     try {
       await ref.read(shareTextProvider)(record.publicKey, record.name);
     } catch (error) {
@@ -136,39 +145,25 @@ class KeyDetailScreen extends ConsumerWidget {
     }
   }
 
-  Future<void> _rename(BuildContext context, WidgetRef ref, SshKeyRecord record) async {
-    final controller = TextEditingController(text: record.name);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Rename key'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 60,
-          onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
-            child: const Text('Rename'),
-          ),
-        ],
-      ),
+  Future<void> _rename(
+    BuildContext context,
+    WidgetRef ref,
+    SshKeyRecord record,
+  ) async {
+    final name = await TextPromptDialog.show(
+      context,
+      title: 'Rename key',
+      confirmLabel: 'Rename',
+      initialText: record.name,
+      maxLength: 60,
     );
-    controller.dispose();
     if (name == null || !context.mounted) return;
     try {
       await ref.read(keyListProvider.notifier).rename(record.id, name);
     } on VaultException catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.message)),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
       }
     }
   }
@@ -284,7 +279,12 @@ class _Banner extends StatelessWidget {
 }
 
 class _CopyBlock extends StatelessWidget {
-  const _CopyBlock({super.key, required this.text, required this.copyLabel, this.onShare});
+  const _CopyBlock({
+    super.key,
+    required this.text,
+    required this.copyLabel,
+    this.onShare,
+  });
 
   final String text;
   final String copyLabel;
@@ -328,7 +328,9 @@ class _CopyBlock extends StatelessWidget {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context)
                       ..hideCurrentSnackBar()
-                      ..showSnackBar(SnackBar(content: Text('$copyLabel copied')));
+                      ..showSnackBar(
+                        SnackBar(content: Text('$copyLabel copied')),
+                      );
                   }
                 },
                 icon: const Icon(Icons.copy, size: 18),

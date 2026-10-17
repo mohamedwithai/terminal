@@ -335,7 +335,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
 
   Future<void> _editHost() async {
     await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => ServerFormScreen(server: _server)),
+      MaterialPageRoute<void>(
+        builder: (_) => ServerFormScreen(server: _server),
+      ),
     );
     await _refreshServer();
   }
@@ -415,7 +417,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     _trackPointer(event);
     final span = _pointerSpan;
     if (span != null && span > 0) {
-      _pinchBase = _pinchFontSize ??
+      _pinchBase =
+          _pinchFontSize ??
           ref.read(appSettingsProvider).fontSizeFor(_server.id);
       _pinchStart = span;
     }
@@ -524,8 +527,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   bool get _isLive {
     final state = ref.read(sshSessionStateProvider(_args)).asData?.value;
     return state != null &&
-        (state.isConnected ||
-            state.status == SSHConnectionStatus.reconnecting);
+        (state.isConnected || state.status == SSHConnectionStatus.reconnecting);
   }
 
   /// Back and Disconnect. A live session asks first; anything else just

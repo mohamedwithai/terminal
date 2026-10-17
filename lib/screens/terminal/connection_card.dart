@@ -155,7 +155,9 @@ class ConnectionCard extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadii.card),
         side: BorderSide(
-          color: failed ? AppColors.error.withValues(alpha: 0.5) : AppColors.border,
+          color: failed
+              ? AppColors.error.withValues(alpha: 0.5)
+              : AppColors.border,
         ),
       ),
       child: Padding(
@@ -167,7 +169,11 @@ class ConnectionCard extends StatelessWidget {
             Row(
               children: [
                 if (failed)
-                  const Icon(Icons.error_outline, color: AppColors.error, size: 20)
+                  const Icon(
+                    Icons.error_outline,
+                    color: AppColors.error,
+                    size: 20,
+                  )
                 else
                   const SizedBox.square(
                     dimension: 16,
@@ -209,7 +215,10 @@ class ConnectionCard extends StatelessWidget {
                   ),
                   FilledButton(onPressed: onRetry, child: const Text('Retry')),
                 ] else
-                  OutlinedButton(onPressed: onCancel, child: const Text('Cancel')),
+                  OutlinedButton(
+                    onPressed: onCancel,
+                    child: const Text('Cancel'),
+                  ),
               ],
             ),
           ],

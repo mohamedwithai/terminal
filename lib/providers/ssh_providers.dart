@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ssh_app/models/server_config.dart';
@@ -64,57 +65,67 @@ final activeSessionsProvider = StreamProvider<List<SSHConnectionSession>>((
 });
 
 /// Stream of connection state snapshots for a specific session.
-final sshSessionStateProvider =
-    StreamProvider.autoDispose.family<SSHConnectionState, ({String sessionId, ServerConfig server})>(
-  (ref, args) {
-    if (kIsWeb) {
-      return Stream.value(
-        const SSHConnectionState.error(
-          'SSH connections require raw sockets and are not supported on Flutter Web.',
-        ),
-      );
-    }
+final sshSessionStateProvider = StreamProvider.autoDispose
+    .family<SSHConnectionState, ({String sessionId, ServerConfig server})>((
+      ref,
+      args,
+    ) {
+      if (kIsWeb) {
+        return Stream.value(
+          const SSHConnectionState.error(
+            'SSH connections require raw sockets and are not supported on Flutter Web.',
+          ),
+        );
+      }
 
-    final service = ref.watch(sshConnectionServiceProvider);
-    final session = service.getOrCreateSession(args.sessionId, args.server);
+      final service = ref.watch(sshConnectionServiceProvider);
+      final session = service.getOrCreateSession(args.sessionId, args.server);
 
-    ref.onDispose(() {
-      service.closeSession(args.sessionId);
+      ref.onDispose(() {
+        service.closeSession(args.sessionId);
+      });
+
+      return session.stateStream;
     });
-
-    return session.stateStream;
-  },
-);
 
 /// The session's connection log, emitted in full after every new entry.
 final sshSessionLogProvider = StreamProvider.autoDispose
-    .family<List<ConnectionLogEntry>, ({String sessionId, ServerConfig server})>(
-  (ref, args) {
-    if (kIsWeb) {
-      return Stream.value(const []);
-    }
+    .family<
+      List<ConnectionLogEntry>,
+      ({String sessionId, ServerConfig server})
+    >((ref, args) {
+      if (kIsWeb) {
+        return Stream.value(const []);
+      }
 
-    final log = ref
-        .watch(sshConnectionServiceProvider)
-        .getOrCreateSession(args.sessionId, args.server)
-        .log;
-    // Start with the entries so far, then follow changes, with no gap
-    // between the two in which an entry could be missed.
-    return Stream.multi((controller) {
-      controller.add(log.entries);
-      final sub = log.changes.listen(controller.add, onDone: controller.close);
-      controller.onCancel = sub.cancel;
+      final log = ref
+          .watch(sshConnectionServiceProvider)
+          .getOrCreateSession(args.sessionId, args.server)
+          .log;
+      // Start with the entries so far, then follow changes, with no gap
+      // between the two in which an entry could be missed.
+      return Stream.multi((controller) {
+        controller.add(log.entries);
+        final sub = log.changes.listen(
+          controller.add,
+          onDone: controller.close,
+        );
+        controller.onCancel = sub.cancel;
+      });
     });
-  },
-);
 
 /// Controller managing connection actions (connect, disconnect, execute) for a session.
 final sshSessionControllerProvider = Provider.autoDispose
-    .family<SSHSessionController, ({String sessionId, ServerConfig server})>(
-  (ref, args) {
-    return SSHSessionController(ref: ref, sessionId: args.sessionId, server: args.server);
-  },
-);
+    .family<SSHSessionController, ({String sessionId, ServerConfig server})>((
+      ref,
+      args,
+    ) {
+      return SSHSessionController(
+        ref: ref,
+        sessionId: args.sessionId,
+        server: args.server,
+      );
+    });
 
 class SSHSessionController {
   SSHSessionController({

@@ -57,11 +57,11 @@ void main() {
   test(
     'a saved key keeps its secret in secure storage, not in metadata',
     () async {
-      final key = generateKey(KeyAlgorithm.ed25519, passphrase: 'pw');
+      final key = generateKey(KeyAlgorithm.ed25519, passphrase: 'correct horse battery staple');
       final record = await vault.addKey(
         name: ' Laptop ',
         privateKey: key.privateKey,
-        passphrase: 'pw',
+        passphrase: 'correct horse battery staple',
         info: key.info,
       );
 
@@ -71,11 +71,11 @@ void main() {
         metadata.keys.values.single,
         isNot(contains('OPENSSH PRIVATE KEY')),
       );
-      expect(metadata.keys.values.single, isNot(contains('pw')));
+      expect(metadata.keys.values.single, isNot(contains('correct horse')));
       final stored =
           jsonDecode(secure.values[keyStorageKey(record.id)]!) as Map;
       expect(stored['privateKey'], key.privateKey);
-      expect(stored['passphrase'], 'pw');
+      expect(stored['passphrase'], 'correct horse battery staple');
       expect((await vault.listKeys()).single, record);
     },
   );

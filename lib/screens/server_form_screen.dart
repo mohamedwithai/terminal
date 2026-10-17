@@ -5,7 +5,9 @@ import 'package:ssh_app/models/auth_type.dart';
 import 'package:ssh_app/models/host_validator.dart';
 import 'package:ssh_app/models/server_config.dart';
 import 'package:ssh_app/models/server_credentials.dart';
+import 'package:ssh_app/providers/preferences_providers.dart';
 import 'package:ssh_app/providers/vault_providers.dart';
+import 'package:ssh_app/screens/widgets/text_prompt_dialog.dart';
 import 'package:ssh_app/services/vault_exception.dart';
 
 /// Add or edit a server. Secrets are loaded from the vault, not from the route.
@@ -37,6 +39,7 @@ class _ServerFormScreenState extends ConsumerState<ServerFormScreen> {
   var _hidePassphrase = true;
   var _loadingSecrets = false;
   var _saving = false;
+  var _tags = <String>[];
   Map<String, String> _errors = {};
 
   @override
@@ -51,6 +54,7 @@ class _ServerFormScreenState extends ConsumerState<ServerFormScreen> {
     _port.text = '${server.port}';
     _username.text = server.username;
     _authType = server.authType;
+    _tags = [...server.tags];
     _keyId = server.keyId;
     _loadingSecrets = true;
     _loadSecrets(server.id);
@@ -157,6 +161,11 @@ class _ServerFormScreenState extends ConsumerState<ServerFormScreen> {
                     errorText: _errors['username'],
                   ),
                   onChanged: (_) => _clearError('username'),
+                ),
+                const SizedBox(height: 16),
+                _TagPicker(
+                  selected: _tags,
+                  onChanged: (tags) => setState(() => _tags = tags),
                 ),
                 const SizedBox(height: 20),
                 Text(
@@ -353,7 +362,7 @@ class _ServerFormScreenState extends ConsumerState<ServerFormScreen> {
         ).copyWith(
           createdAt: existing?.createdAt,
           updatedAt: existing?.updatedAt,
-          tags: existing?.tags,
+          tags: _tags,
           lastConnectedAt: existing?.lastConnectedAt,
           keyId: _authType == AuthType.privateKey ? _keyId : null,
           clearKeyId: _authType != AuthType.privateKey || _keyId == null,
@@ -457,6 +466,61 @@ class _KeyPicker extends ConsumerWidget {
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
+      ],
+    );
+  }
+}
+
+/// Tags for a host: pick from the saved list or add a new one.
+class _TagPicker extends ConsumerWidget {
+  const _TagPicker({required this.selected, required this.onChanged});
+
+  final List<String> selected;
+  final ValueChanged<List<String>> onChanged;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final known = ref.watch(appSettingsProvider).tags;
+    final all = {...known, ...selected}.toList();
+    Future<void> add() async {
+      final name = await TextPromptDialog.show(
+        context,
+        title: 'New tag',
+        confirmLabel: 'Add',
+        maxLength: 24,
+      );
+      final tag = name?.trim() ?? '';
+      if (tag.isEmpty) return;
+      await ref.read(appSettingsProvider.notifier).addTag(tag);
+      if (!selected.contains(tag)) onChanged([...selected, tag]);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Tags', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          children: [
+            for (final tag in all)
+              FilterChip(
+                label: Text(tag),
+                selected: selected.contains(tag),
+                onSelected: (on) => onChanged(
+                  on
+                      ? [...selected, tag]
+                      : selected.where((t) => t != tag).toList(),
+                ),
+              ),
+            ActionChip(
+              avatar: const Icon(Icons.add, size: 18),
+              label: const Text('Tag'),
+              onPressed: add,
+            ),
+          ],
+        ),
       ],
     );
   }

@@ -29,17 +29,17 @@ class VaultService {
     required MetadataStore metadataStore,
     DateTime Function()? clock,
     Future<void> Function(String privateKey, String? passphrase)?
-        validatePrivateKey,
-  })  : _secure = secureStore,
-        _metadata = metadataStore,
-        _clock = clock ?? DateTime.now,
-        _validatePrivateKey = validatePrivateKey ?? validatePrivateKeyMaterial;
+    validatePrivateKey,
+  }) : _secure = secureStore,
+       _metadata = metadataStore,
+       _clock = clock ?? DateTime.now,
+       _validatePrivateKey = validatePrivateKey ?? validatePrivateKeyMaterial;
 
   final SecureStore _secure;
   final MetadataStore _metadata;
   final DateTime Function() _clock;
   final Future<void> Function(String privateKey, String? passphrase)
-      _validatePrivateKey;
+  _validatePrivateKey;
 
   Future<void> _tail = Future<void>.value();
 
@@ -213,7 +213,11 @@ class VaultService {
             encrypted: info.encrypted,
             createdAt: _clock().toUtc(),
           );
-          await _writeKey(record, pem.trim(), info.encrypted ? own?.passphrase : null);
+          await _writeKey(
+            record,
+            pem.trim(),
+            info.encrypted ? own?.passphrase : null,
+          );
           byFingerprint[info.fingerprint] = record;
           names.add(record.name);
         }
@@ -229,7 +233,7 @@ class VaultService {
     if (!taken.contains(base)) {
       return base;
     }
-    for (var n = 2;; n++) {
+    for (var n = 2; ; n++) {
       final candidate = '$base $n';
       if (!taken.contains(candidate)) {
         return candidate;
@@ -269,9 +273,7 @@ class VaultService {
         ),
       );
     } catch (error) {
-      throw VaultException(
-        'Could not save the key to secure storage. $error',
-      );
+      throw VaultException('Could not save the key to secure storage. $error');
     }
     try {
       await _metadata.putKey(record);
@@ -363,7 +365,11 @@ class VaultService {
       normalized = normalized.copyWith(clearKeyId: true);
     }
     final errors = normalized.fieldErrors;
-    final storedCredentials = await _credentialsFor(normalized, credentials, errors);
+    final storedCredentials = await _credentialsFor(
+      normalized,
+      credentials,
+      errors,
+    );
     if (errors.isNotEmpty) {
       throw VaultValidationException(errors);
     }
