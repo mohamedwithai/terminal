@@ -91,7 +91,9 @@ void main() {
     expect(find.byType(TerminalScreen), findsNothing);
   });
 
-  testWidgets('Disconnect in the menu asks before disconnecting', (tester) async {
+  testWidgets('Disconnect in the menu asks before disconnecting', (
+    tester,
+  ) async {
     final disconnects = <int>[0];
     await tester.pumpWidget(
       _terminalApp(
@@ -605,9 +607,7 @@ void main() {
       expect(clipboard.text, 'scrollback');
     });
 
-    testWidgets('Select all then Copy copies the whole buffer', (
-      tester,
-    ) async {
+    testWidgets('Select all then Copy copies the whole buffer', (tester) async {
       final clipboard = _FakeClipboard(tester);
       await tester.pumpWidget(_terminalApp(server));
       await tester.pump();
@@ -706,7 +706,8 @@ Terminal _terminal(WidgetTester tester) {
 String _screenText(WidgetTester tester) => _terminal(tester).buffer.getText();
 
 dynamic _render(WidgetTester tester) {
-  return tester.state<TerminalViewState>(find.byType(TerminalView))
+  return tester
+      .state<TerminalViewState>(find.byType(TerminalView))
       .renderTerminal;
 }
 

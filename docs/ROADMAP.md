@@ -96,7 +96,7 @@ Tamil as a fallback.
    fingerprint.
 4. Migrate existing per-server pasted keys into the key store.
 
-## Milestone D: snippets and automation
+## Milestone D: snippets and automation *(done)*
 
 - **D1 Library:** search, tags, a "Runs automatically" section, a Run button
   per snippet, badges (steps, variables, hosts, asks first), import/export

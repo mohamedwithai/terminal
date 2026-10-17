@@ -29,7 +29,10 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.widgetWithText(TextField, 'Name'), 'Build box');
-    await tester.enterText(find.widgetWithText(TextField, 'Host'), 'example.com');
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Host'),
+      'example.com',
+    );
     await tester.enterText(find.widgetWithText(TextField, 'Username'), 'ada');
     await tester.enterText(find.widgetWithText(TextField, 'Password'), 'pw');
     await tester.tap(find.widgetWithText(FilterChip, 'Clients'));
@@ -42,7 +45,9 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Add'));
     await tester.pumpAndSettle();
     expect(
-      tester.widget<FilterChip>(find.widgetWithText(FilterChip, 'Work')).selected,
+      tester
+          .widget<FilterChip>(find.widgetWithText(FilterChip, 'Work'))
+          .selected,
       isTrue,
     );
 

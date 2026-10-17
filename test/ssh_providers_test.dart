@@ -43,11 +43,13 @@ void main() {
     );
     await vault.saveServer(server, const ServerCredentials(password: 'p'));
     final sockets = FakeSSHSocketFactory();
-    final container = ProviderContainer(overrides: [
-      metadataStoreProvider.overrideWithValue(metadata),
-      vaultServiceProvider.overrideWithValue(vault),
-      sshSocketFactoryProvider.overrideWithValue(sockets),
-    ]);
+    final container = ProviderContainer(
+      overrides: [
+        metadataStoreProvider.overrideWithValue(metadata),
+        vaultServiceProvider.overrideWithValue(vault),
+        sshSocketFactoryProvider.overrideWithValue(sockets),
+      ],
+    );
     addTearDown(container.dispose);
 
     final args = (sessionId: 'session-1', server: server);
@@ -70,33 +72,41 @@ void main() {
 
     final messages = log.read().asData?.value.map((entry) => entry.message);
     expect(messages, contains('Reading saved credentials'));
-    expect(messages, contains('Opening TCP connection to 10.0.0.5:2222 (limit 10s)'));
+    expect(
+      messages,
+      contains('Opening TCP connection to 10.0.0.5:2222 (limit 10s)'),
+    );
   });
 
-  test('a server without saved credentials ends in an error, not a hang', () async {
-    final metadata = MemoryMetadataStore();
-    final vault = VaultService(
-      secureStore: MemorySecureStore(),
-      metadataStore: metadata,
-    );
-    final container = ProviderContainer(overrides: [
-      metadataStoreProvider.overrideWithValue(metadata),
-      vaultServiceProvider.overrideWithValue(vault),
-      sshSocketFactoryProvider.overrideWithValue(FakeSSHSocketFactory()),
-    ]);
-    addTearDown(container.dispose);
+  test(
+    'a server without saved credentials ends in an error, not a hang',
+    () async {
+      final metadata = MemoryMetadataStore();
+      final vault = VaultService(
+        secureStore: MemorySecureStore(),
+        metadataStore: metadata,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          metadataStoreProvider.overrideWithValue(metadata),
+          vaultServiceProvider.overrideWithValue(vault),
+          sshSocketFactoryProvider.overrideWithValue(FakeSSHSocketFactory()),
+        ],
+      );
+      addTearDown(container.dispose);
 
-    final args = (sessionId: 'session-2', server: server);
-    container.listen(sshSessionStateProvider(args), (_, _) {});
+      final args = (sessionId: 'session-2', server: server);
+      container.listen(sshSessionStateProvider(args), (_, _) {});
 
-    await expectLater(
-      container.read(sshSessionControllerProvider(args)).connect(),
-      throwsA(isA<SSHCredentialsException>()),
-    );
-    await pumpEventQueue();
+      await expectLater(
+        container.read(sshSessionControllerProvider(args)).connect(),
+        throwsA(isA<SSHCredentialsException>()),
+      );
+      await pumpEventQueue();
 
-    final state = container.read(sshSessionStateProvider(args)).asData?.value;
-    expect(state?.status, SSHConnectionStatus.error);
-    expect(state?.stage, SSHConnectionStage.loadingCredentials);
-  });
+      final state = container.read(sshSessionStateProvider(args)).asData?.value;
+      expect(state?.status, SSHConnectionStatus.error);
+      expect(state?.stage, SSHConnectionStage.loadingCredentials);
+    },
+  );
 }

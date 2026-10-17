@@ -31,7 +31,7 @@ class MemorySecureStore implements SecureStore {
 /// the web store outside a secure context.
 class FailingSecureStore extends MemorySecureStore {
   FailingSecureStore([Object? error])
-      : error = error ?? UnsupportedError('Secure storage is unavailable.');
+    : error = error ?? UnsupportedError('Secure storage is unavailable.');
 
   final Object error;
 
@@ -128,8 +128,9 @@ class MemoryMetadataStore implements MetadataStore {
 
   @override
   Future<void> putKnownHost(KnownHost knownHost) async {
-    knownHosts[_hostKey(knownHost.host, knownHost.port)] =
-        jsonEncode(knownHost.toJson());
+    knownHosts[_hostKey(knownHost.host, knownHost.port)] = jsonEncode(
+      knownHost.toJson(),
+    );
   }
 
   @override

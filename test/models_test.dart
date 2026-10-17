@@ -44,7 +44,11 @@ void main() {
   });
 
   test('server config reports field errors', () {
-    final config = sampleConfig().copyWith(label: '  ', host: 'bad host', port: 0);
+    final config = sampleConfig().copyWith(
+      label: '  ',
+      host: 'bad host',
+      port: 0,
+    );
     final errors = config.fieldErrors;
 
     expect(errors['label'], isNotNull);

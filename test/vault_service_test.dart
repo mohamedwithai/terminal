@@ -63,10 +63,7 @@ void main() {
 
   test('update keeps createdAt and replaces the secret', () async {
     final server = config();
-    await vault.saveServer(
-      server,
-      const ServerCredentials(password: 'first'),
-    );
+    await vault.saveServer(server, const ServerCredentials(password: 'first'));
     now = now.add(const Duration(hours: 2));
     final updated = await vault.saveServer(
       server.copyWith(label: 'Renamed'),
@@ -103,25 +100,27 @@ void main() {
     expect(metadata.servers, isEmpty);
   });
 
-  test('a secure-store failure becomes a VaultException and writes nothing',
-      () async {
-    final failing = VaultService(
-      secureStore: FailingSecureStore(),
-      metadataStore: metadata,
-    );
+  test(
+    'a secure-store failure becomes a VaultException and writes nothing',
+    () async {
+      final failing = VaultService(
+        secureStore: FailingSecureStore(),
+        metadataStore: metadata,
+      );
 
-    await expectLater(
-      failing.saveServer(config(), const ServerCredentials(password: 'pw')),
-      throwsA(
-        isA<VaultException>().having(
-          (error) => error.message,
-          'message',
-          startsWith('Could not save the credentials to secure storage.'),
+      await expectLater(
+        failing.saveServer(config(), const ServerCredentials(password: 'pw')),
+        throwsA(
+          isA<VaultException>().having(
+            (error) => error.message,
+            'message',
+            startsWith('Could not save the credentials to secure storage.'),
+          ),
         ),
-      ),
-    );
-    expect(metadata.servers, isEmpty);
-  });
+      );
+      expect(metadata.servers, isEmpty);
+    },
+  );
 
   test('OpenSSH Ed25519, OpenSSH RSA, and PEM RSA keys round-trip', () async {
     for (final fixture in ['id_ed25519', 'id_rsa_openssh', 'id_rsa_pem']) {
@@ -133,9 +132,7 @@ void main() {
       );
 
       final stored = ServerCredentials.fromJson(
-        Map<String, dynamic>.from(
-          (await vault.readCredentials(id))!.toJson(),
-        ),
+        Map<String, dynamic>.from((await vault.readCredentials(id))!.toJson()),
       );
       expect(stored.privateKey, pem.trim());
       expect(stored.passphrase, isNull);
@@ -158,8 +155,8 @@ void main() {
   });
 
   test('a bad private key or passphrase writes nothing', () async {
-    final encrypted =
-        File('test/fixtures/id_ed25519_encrypted').readAsStringSync();
+    final encrypted = File('test/fixtures/id_ed25519_encrypted')
+        .readAsStringSync();
     final ecdsa = File('test/fixtures/id_ecdsa').readAsStringSync();
 
     Future<void> expectRejected(ServerCredentials credentials) async {
@@ -177,7 +174,9 @@ void main() {
     );
     await expectRejected(ServerCredentials(privateKey: encrypted));
     await expectRejected(
-      const ServerCredentials(privateKey: '-----BEGIN DSA PRIVATE KEY-----\nbad'),
+      const ServerCredentials(
+        privateKey: '-----BEGIN DSA PRIVATE KEY-----\nbad',
+      ),
     );
 
     // ECDSA is now supported in Phase 2

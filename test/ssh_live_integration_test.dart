@@ -161,11 +161,13 @@ void main() {
     try {
       await expectLater(
         session.connect(_credentials(env)),
-        throwsA(isA<SSHTimeoutException>().having(
-          (e) => e.message,
-          'message',
-          contains('waiting for the host key to be accepted'),
-        )),
+        throwsA(
+          isA<SSHTimeoutException>().having(
+            (e) => e.message,
+            'message',
+            contains('waiting for the host key to be accepted'),
+          ),
+        ),
       );
       expect(knownHosts, isEmpty);
     } finally {

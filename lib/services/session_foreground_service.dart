@@ -21,6 +21,10 @@ abstract interface class SessionForegroundService {
   /// notifications back on.
   Future<void> openNotificationSettings();
 
+  /// Shows a one-off notification, for example when a snippet run finishes
+  /// while the app is in the background.
+  Future<void> notify(String title, String text);
+
   /// Emits when the user taps Disconnect in the notification.
   Stream<void> get disconnectRequests;
 }
@@ -38,6 +42,9 @@ class NoopSessionForegroundService implements SessionForegroundService {
 
   @override
   Future<void> openNotificationSettings() async {}
+
+  @override
+  Future<void> notify(String title, String text) async {}
 
   @override
   Stream<void> get disconnectRequests => const Stream.empty();
@@ -77,6 +84,14 @@ class AndroidSessionForegroundService implements SessionForegroundService {
   @override
   Future<void> openNotificationSettings() {
     return _channel.invokeMethod<void>('openNotificationSettings');
+  }
+
+  @override
+  Future<void> notify(String title, String text) {
+    return _channel.invokeMethod<void>('notify', {
+      'title': title,
+      'text': text,
+    });
   }
 
   @override

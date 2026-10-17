@@ -57,7 +57,10 @@ void main() {
   test(
     'a saved key keeps its secret in secure storage, not in metadata',
     () async {
-      final key = generateKey(KeyAlgorithm.ed25519, passphrase: 'correct horse battery staple');
+      final key = generateKey(
+        KeyAlgorithm.ed25519,
+        passphrase: 'correct horse battery staple',
+      );
       final record = await vault.addKey(
         name: ' Laptop ',
         privateKey: key.privateKey,

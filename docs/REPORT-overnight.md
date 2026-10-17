@@ -59,3 +59,34 @@ Phone checklist for C:
 - Should Light also switch the app UI to light, or only the terminal?
 - "Active now" stays empty until milestone F, because leaving the terminal
   ends the session today. OK?
+
+## Milestone D: snippets and automation
+Library (search, tags, "Runs automatically", badges, Run, import/export JSON),
+editor (ordered steps with wait rules and timeouts, typed variables, stop at
+first failure, ask first, on-connect hosts with a tmux tip), run sheet
+(variables, host picker, masked preview, confirm), parallel multi-host runs
+with per-host progress / output / Stop all that keep running in the
+background and notify when done, on-connect triggers, key bar and terminal bar
+snippet buttons. Tests: variables, file format, marker filter at every chunk
+size, runner (success, failure stops, timeout, text, seconds, cancel),
+multi-host runs, library UI, terminal integration.
+
+Decisions and limits:
+- Exit codes use a hidden `;echo __RC_x=$?` marker, so "prompt returns" needs a
+  POSIX shell (not fish) and commands must not end in a `# comment`.
+- Headless multi-host runs refuse unknown host keys ("connect once from
+  Hosts and trust it"); I chose that over trusting silently.
+- A snippet with variables never runs automatically on connect.
+- Secrets exist only in the run sheet's fields; never saved, masked in the
+  preview. A secret typed into a command appears in the shell history of the
+  server the way any typed command does.
+- The Kotlin `notify` code is verified only by the CI build.
+
+Phone checklist for D:
+1. Snippets tab, New snippet `echo hello`; run it on one host.
+2. In a terminal, tap the snippet button and run it; no `__RC_` text shows.
+3. A two-step snippet with stop-at-first-failure and a failing first step.
+4. A snippet with a choice and a secret variable; check the preview is masked.
+5. Run on two hosts; leave the screen, switch apps, wait for the notification.
+6. Tick a host under "Run automatically on connect" with `tmux new -A -s main`.
+7. Export, delete, import.

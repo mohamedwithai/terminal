@@ -26,6 +26,14 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "requestNotificationPermission" -> requestNotificationPermission(result)
+                "notify" -> {
+                    SessionForegroundService.notifyDone(
+                        applicationContext,
+                        call.argument<String>("title") ?: "",
+                        call.argument<String>("text") ?: "",
+                    )
+                    result.success(null)
+                }
                 "openNotificationSettings" -> {
                     openNotificationSettings()
                     result.success(null)

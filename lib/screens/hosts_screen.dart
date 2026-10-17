@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ssh_app/models/auth_type.dart';
 import 'package:ssh_app/models/server_config.dart';
 import 'package:ssh_app/providers/preferences_providers.dart';
+import 'package:ssh_app/providers/snippet_providers.dart';
 import 'package:ssh_app/providers/ssh_providers.dart';
 import 'package:ssh_app/providers/vault_providers.dart';
 import 'package:ssh_app/screens/format.dart';
@@ -434,6 +435,7 @@ class _HostMenu extends ConsumerWidget {
           final confirmed = await _confirmDelete(context, server.label);
           if (confirmed && context.mounted) {
             await ref.read(serverListProvider.notifier).delete(server.id);
+            await ref.read(snippetListProvider.notifier).forgetHost(server.id);
           }
         }
       },

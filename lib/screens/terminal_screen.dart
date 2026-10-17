@@ -9,10 +9,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ssh_app/models/server_config.dart';
 import 'package:ssh_app/providers/preferences_providers.dart';
+import 'package:ssh_app/providers/snippet_providers.dart';
 import 'package:ssh_app/providers/ssh_providers.dart';
 import 'package:ssh_app/providers/vault_providers.dart';
 import 'package:ssh_app/screens/pty_resize.dart';
+import 'package:ssh_app/models/snippet.dart';
 import 'package:ssh_app/screens/server_form_screen.dart';
+import 'package:ssh_app/screens/snippets/run_sheet.dart';
+import 'package:ssh_app/screens/snippets/snippet_picker_sheet.dart';
+import 'package:ssh_app/services/snippets/snippet_runner.dart';
 import 'package:ssh_app/screens/settings_screen.dart';
 import 'package:ssh_app/screens/terminal/connection_card.dart';
 import 'package:ssh_app/screens/terminal/connection_log_view.dart';
@@ -76,6 +81,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   late final _ptySize = PtyResizeDebouncer(send: _sendPtySize);
   final FocusNode _focusNode = FocusNode();
 
+  /// Runs snippets in this terminal's shell and hides their exit-code
+  /// markers from what the terminal shows.
+  late final _runner = SnippetRunner(
+    write: (text) => _session?.writeShell(utf8.encode(text)),
+  );
+
+  /// The snippet running now, for the banner above the key bar.
+  ({String name, int step, int total})? _running;
+
   /// Columns and rows, for the bar.
   final _gridSize = ValueNotifier<(int, int)>((80, 24));
 
@@ -134,6 +148,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
   @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_onHardwareKey);
+    // A snippet still running is abandoned with the screen.
+    _runner.cancel();
     _ptySize.dispose();
     _gridSize.dispose();
     _modifiers.removeListener(_onModifiersChanged);
@@ -276,8 +292,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
       _outputSub = shell.stdout
           .map<List<int>>((chunk) => chunk)
           .transform(const Utf8Decoder(allowMalformed: true))
-          .listen(_terminal.write);
+          .listen((text) => _terminal.write(_runner.feed(text)));
       unawaited(shell.done.then((_) => _onShellDone(shell)));
+      unawaited(_runOnConnectSnippets());
     } catch (error) {
       if (mounted) {
         _shellError = '$error';
@@ -357,32 +374,112 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     );
   }
 
-  void _showSnippets() {
-    unawaited(
-      showModalBottomSheet<void>(
-        context: context,
-        builder: (context) => const Padding(
-          padding: EdgeInsets.fromLTRB(24, 0, 24, 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.code, color: AppColors.accent, size: 32),
-              SizedBox(height: 12),
-              Text(
-                'Snippets are coming soon',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-              ),
-              SizedBox(height: 8),
-              Text(
-                'Save commands once and run them here with a tap.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.muted),
-              ),
-            ],
-          ),
+  /// Opens the snippet list and runs the one picked in this terminal.
+  Future<void> _openSnippets() async {
+    final snippet = await showSnippetPicker(context);
+    if (snippet != null && mounted) {
+      await _runSnippet(snippet);
+    }
+  }
+
+  /// Runs [snippet] in this terminal. Asks for its variables and shows the
+  /// commands first when it has variables or asks first.
+  ///
+  /// With [automatic] (a snippet set to run on connect) nobody is there to
+  /// type values, so a snippet with variables is not run; the user is told.
+  Future<void> _runSnippet(Snippet snippet, {bool automatic = false}) async {
+    if (_running != null) {
+      _snackbar('A snippet is already running. Stop it first.');
+      return;
+    }
+    if (_shell == null) {
+      _snackbar('Connect first, then run the snippet.');
+      return;
+    }
+    var values = <String, String>{};
+    if (snippet.allVariables.isNotEmpty) {
+      if (automatic) {
+        _snackbar('"${snippet.name}" needs values. Run it from Snippets.');
+        return;
+      }
+    }
+    if (snippet.allVariables.isNotEmpty || snippet.askFirst) {
+      final request = await showRunSheet(context, snippet: snippet);
+      if (request == null || !mounted) {
+        return;
+      }
+      values = request.values;
+    }
+    final List<({String command, WaitRule wait, int timeoutSeconds})> resolved;
+    try {
+      resolved = snippet.resolvedSteps(values);
+    } on FormatException catch (error) {
+      _snackbar(error.message);
+      return;
+    }
+    final steps = [
+      for (final step in resolved)
+        RunStep(
+          command: step.command,
+          wait: step.wait,
+          timeout: Duration(seconds: step.timeoutSeconds),
         ),
-      ),
+    ];
+    setState(
+      () => _running = (name: snippet.name, step: 1, total: steps.length),
     );
+    final result = await _runner.run(
+      steps,
+      stopOnFailure: snippet.stopOnFailure,
+      onStep: (index, status) {
+        if (mounted && status == StepStatus.running) {
+          setState(
+            () => _running = (
+              name: snippet.name,
+              step: index + 1,
+              total: steps.length,
+            ),
+          );
+        }
+      },
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() => _running = null);
+    if (result.status == RunStatus.failed) {
+      final failedAt = result.steps.indexWhere(
+        (s) => s == StepStatus.failed || s == StepStatus.timedOut,
+      );
+      _snackbar(
+        '"${snippet.name}" failed at step ${failedAt + 1}'
+        '${result.steps[failedAt] == StepStatus.timedOut ? ' (timed out)' : ''}.',
+      );
+    }
+  }
+
+  /// Runs the snippets set to run on connect for this host, one after the
+  /// other, each time a shell opens.
+  Future<void> _runOnConnectSnippets() async {
+    try {
+      final snippets = await ref.read(snippetListProvider.future);
+      for (final snippet in snippets) {
+        if (!mounted || _shell == null) return;
+        if (snippet.runOnConnect.contains(_server.id)) {
+          await _runSnippet(snippet, automatic: true);
+        }
+      }
+    } catch (error) {
+      debugPrint('Could not run the on-connect snippets: $error');
+    }
+  }
+
+  void _snackbar(String text) {
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(text)));
+    }
   }
 
   void _trackPointer(PointerEvent event) {
@@ -684,7 +781,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
           statusColor: statusColor,
           gridSize: _gridSize,
           onBack: () => unawaited(_leave()),
-          onSnippets: _showSnippets,
+          onSnippets: () => unawaited(_openSnippets()),
           onSettings: () => Navigator.of(context).push(
             MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
           ),
@@ -762,6 +859,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
                 ],
               ),
             ),
+            if (_running != null)
+              _SnippetBanner(
+                name: _running!.name,
+                step: _running!.step,
+                total: _running!.total,
+                onStop: _runner.cancel,
+              ),
             TerminalKeyboardBar(
               ctrl: _modifiers.ctrl,
               alt: _modifiers.alt,
@@ -770,7 +874,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
               onKey: _sendKey,
               onText: _sendText,
               onPaste: () => unawaited(_pasteClipboard()),
-              onSnippets: _showSnippets,
+              onSnippets: () => unawaited(_openSnippets()),
               layout: settings.keyBar,
               haptics: settings.haptics,
             ),
@@ -940,6 +1044,49 @@ class _SessionTabs extends StatelessWidget {
                 style: const TextStyle(fontSize: 13, color: AppColors.text),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Shows the snippet that is running, above the key bar.
+class _SnippetBanner extends StatelessWidget {
+  const _SnippetBanner({
+    required this.name,
+    required this.step,
+    required this.total,
+    required this.onStop,
+  });
+
+  final String name;
+  final int step;
+  final int total;
+  final VoidCallback onStop;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.accentSoft,
+      child: Padding(
+        padding: const EdgeInsets.only(left: 14),
+        child: Row(
+          children: [
+            const SizedBox.square(
+              dimension: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '$name · step $step of $total',
+                key: const ValueKey('snippet-banner'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            TextButton(onPressed: onStop, child: const Text('Stop')),
           ],
         ),
       ),

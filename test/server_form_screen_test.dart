@@ -49,7 +49,10 @@ void main() {
 
   Future<void> fillPasswordServer(WidgetTester tester) async {
     await tester.enterText(find.widgetWithText(TextField, 'Name'), 'Build box');
-    await tester.enterText(find.widgetWithText(TextField, 'Host'), 'example.com');
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Host'),
+      'example.com',
+    );
     await tester.enterText(find.widgetWithText(TextField, 'Username'), 'ada');
     await tester.enterText(find.widgetWithText(TextField, 'Password'), 'pw');
   }
@@ -58,40 +61,43 @@ void main() {
     return tester.widget<TextButton>(find.widgetWithText(TextButton, 'Save'));
   }
 
-  testWidgets('a failing SecureStore keeps the form open and shows a SnackBar',
-      (tester) async {
-    final metadata = MemoryMetadataStore();
-    final vault = VaultService(
-      secureStore: FailingSecureStore(
-        PlatformException(code: 'write', message: 'Keystore is locked.'),
-      ),
-      metadataStore: metadata,
-    );
-    await pumpApp(tester, vault);
-    await openAddForm(tester);
-    await fillPasswordServer(tester);
-
-    await tester.tap(find.widgetWithText(TextButton, 'Save'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(ServerFormScreen), findsOneWidget);
-    expect(
-      find.descendant(
-        of: find.byType(SnackBar),
-        matching: find.textContaining(
-          'Could not save the credentials to secure storage.',
+  testWidgets(
+    'a failing SecureStore keeps the form open and shows a SnackBar',
+    (tester) async {
+      final metadata = MemoryMetadataStore();
+      final vault = VaultService(
+        secureStore: FailingSecureStore(
+          PlatformException(code: 'write', message: 'Keystore is locked.'),
         ),
-      ),
-      findsOneWidget,
-    );
-    expect(find.textContaining('Keystore is locked.'), findsOneWidget);
-    expect(saveButton(tester).onPressed, isNotNull);
-    expect(find.text('Build box'), findsOneWidget);
-    expect(metadata.servers, isEmpty);
-  });
+        metadataStore: metadata,
+      );
+      await pumpApp(tester, vault);
+      await openAddForm(tester);
+      await fillPasswordServer(tester);
 
-  testWidgets('an error the vault does not translate still shows a SnackBar',
-      (tester) async {
+      await tester.tap(find.widgetWithText(TextButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ServerFormScreen), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.textContaining(
+            'Could not save the credentials to secure storage.',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Keystore is locked.'), findsOneWidget);
+      expect(saveButton(tester).onPressed, isNotNull);
+      expect(find.text('Build box'), findsOneWidget);
+      expect(metadata.servers, isEmpty);
+    },
+  );
+
+  testWidgets('an error the vault does not translate still shows a SnackBar', (
+    tester,
+  ) async {
     final vault = VaultService(
       secureStore: MemorySecureStore(),
       metadataStore: _BrokenMetadataStore(),
@@ -114,8 +120,9 @@ void main() {
     expect(saveButton(tester).onPressed, isNotNull);
   });
 
-  testWidgets('without a secure context the list warns and Save is disabled',
-      (tester) async {
+  testWidgets('without a secure context the list warns and Save is disabled', (
+    tester,
+  ) async {
     final vault = VaultService(
       secureStore: MemorySecureStore(),
       metadataStore: MemoryMetadataStore(),

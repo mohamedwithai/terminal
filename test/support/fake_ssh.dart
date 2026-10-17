@@ -8,11 +8,10 @@ import 'package:ssh_app/services/ssh/ssh_socket_factory.dart';
 /// [SSHSocketFactory] that records each connect and answers with
 /// [onConnect], or refuses the connection when that is null.
 class FakeSSHSocketFactory implements SSHSocketFactory {
-  FakeSSHSocketFactory({
-    this.onConnect,
-  });
+  FakeSSHSocketFactory({this.onConnect});
 
-  Future<SSHSocket> Function(String host, int port, Duration? timeout)? onConnect;
+  Future<SSHSocket> Function(String host, int port, Duration? timeout)?
+  onConnect;
 
   /// `host:port` of every connect, in order.
   final List<String> calls = [];
@@ -23,7 +22,10 @@ class FakeSSHSocketFactory implements SSHSocketFactory {
     if (onConnect != null) {
       return onConnect!(host, port, timeout);
     }
-    throw const SocketException('Connection refused', osError: OSError('Connection refused', 111));
+    throw const SocketException(
+      'Connection refused',
+      osError: OSError('Connection refused', 111),
+    );
   }
 }
 

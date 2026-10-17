@@ -296,6 +296,9 @@ class _FakeForegroundService implements SessionForegroundService {
   }
 
   @override
+  Future<void> notify(String title, String text) async {}
+
+  @override
   Future<void> update(List<String> sessionLabels) async {
     updates.add(sessionLabels);
   }

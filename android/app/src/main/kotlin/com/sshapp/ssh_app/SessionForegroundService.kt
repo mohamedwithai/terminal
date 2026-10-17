@@ -156,6 +156,53 @@ class SessionForegroundService : Service() {
         /** A startForegroundService() call has not reached onStartCommand yet. */
         private var startPending = false
 
+        private const val DONE_CHANNEL_ID = "snippet_runs"
+        private var doneId = 100
+
+        /** Posts a one-off notification, e.g. when a snippet run finishes. */
+        fun notifyDone(context: Context, title: String, text: String) {
+            val manager = context.getSystemService(NotificationManager::class.java) ?: return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                manager.createNotificationChannel(
+                    NotificationChannel(
+                        DONE_CHANNEL_ID,
+                        "Snippet runs",
+                        NotificationManager.IMPORTANCE_DEFAULT,
+                    ),
+                )
+            }
+            val open = Intent(context, MainActivity::class.java)
+                .setAction(Intent.ACTION_MAIN)
+                .addCategory(Intent.CATEGORY_LAUNCHER)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+            val pending = PendingIntent.getActivity(
+                context,
+                2,
+                open,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            @Suppress("DEPRECATION")
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(context, DONE_CHANNEL_ID)
+            } else {
+                Notification.Builder(context)
+            }
+            try {
+                manager.notify(
+                    doneId++,
+                    builder
+                        .setSmallIcon(R.drawable.ic_stat_ssh)
+                        .setContentTitle(title)
+                        .setContentText(text)
+                        .setContentIntent(pending)
+                        .setAutoCancel(true)
+                        .build(),
+                )
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Notifications are not allowed", e)
+            }
+        }
+
         /** Shows [activeLabels] in the notification, starting the service if
          * needed, or stops it when the list is empty. Main thread only. */
         fun update(context: Context, activeLabels: List<String>) {
