@@ -19,6 +19,7 @@ class ServerConfig {
     required this.updatedAt,
     this.tags = const [],
     this.lastConnectedAt,
+    this.keyId,
   });
 
   /// New server with a UUID and matching created/updated timestamps.
@@ -60,6 +61,9 @@ class ServerConfig {
       updatedAt: _requiredDate(json, 'updatedAt'),
       tags: _optionalTags(json['tags']),
       lastConnectedAt: _optionalDate(json['lastConnectedAt']),
+      keyId: json['keyId'] is String && (json['keyId'] as String).isNotEmpty
+          ? json['keyId'] as String
+          : null,
     );
   }
 
@@ -77,6 +81,11 @@ class ServerConfig {
 
   /// When a connection to this server last succeeded, if ever.
   final DateTime? lastConnectedAt;
+
+  /// The saved SSH key this server signs in with, when its auth type is a
+  /// private key and the key comes from the key store. Null means the key
+  /// was pasted for this server alone.
+  final String? keyId;
 
   /// Field messages for the add/edit form. Empty when the record is usable.
   Map<String, String> get fieldErrors {
@@ -137,6 +146,8 @@ class ServerConfig {
     DateTime? updatedAt,
     List<String>? tags,
     DateTime? lastConnectedAt,
+    String? keyId,
+    bool clearKeyId = false,
   }) {
     return ServerConfig(
       id: id ?? this.id,
@@ -149,6 +160,7 @@ class ServerConfig {
       updatedAt: updatedAt ?? this.updatedAt,
       tags: tags ?? this.tags,
       lastConnectedAt: lastConnectedAt ?? this.lastConnectedAt,
+      keyId: clearKeyId ? null : keyId ?? this.keyId,
     );
   }
 
@@ -165,6 +177,7 @@ class ServerConfig {
       'tags': tags,
       if (lastConnectedAt != null)
         'lastConnectedAt': lastConnectedAt!.toUtc().toIso8601String(),
+      if (keyId != null) 'keyId': keyId,
     };
   }
 
@@ -180,7 +193,8 @@ class ServerConfig {
         other.createdAt.toUtc() == createdAt.toUtc() &&
         other.updatedAt.toUtc() == updatedAt.toUtc() &&
         _sameTags(other.tags, tags) &&
-        other.lastConnectedAt?.toUtc() == lastConnectedAt?.toUtc();
+        other.lastConnectedAt?.toUtc() == lastConnectedAt?.toUtc() &&
+        other.keyId == keyId;
   }
 
   @override
@@ -195,6 +209,7 @@ class ServerConfig {
         updatedAt.toUtc(),
         Object.hashAll(tags),
         lastConnectedAt?.toUtc(),
+        keyId,
       );
 
   @override

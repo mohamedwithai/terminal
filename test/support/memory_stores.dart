@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:ssh_app/models/known_host.dart';
 import 'package:ssh_app/models/server_config.dart';
+import 'package:ssh_app/models/ssh_key_record.dart';
 import 'package:ssh_app/services/metadata_store.dart';
 import 'package:ssh_app/services/secure_store.dart';
 
@@ -44,6 +45,32 @@ class FailingSecureStore extends MemorySecureStore {
 class MemoryMetadataStore implements MetadataStore {
   final Map<String, String> servers = {};
   final Map<String, String> knownHosts = {};
+  final Map<String, String> keys = {};
+
+  @override
+  Future<List<SshKeyRecord>> listKeys() async {
+    final all = keys.values
+        .map((raw) => SshKeyRecord.fromJson(_object(raw)))
+        .toList();
+    all.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return all;
+  }
+
+  @override
+  Future<SshKeyRecord?> getKey(String id) async {
+    final raw = keys[id];
+    return raw == null ? null : SshKeyRecord.fromJson(_object(raw));
+  }
+
+  @override
+  Future<void> putKey(SshKeyRecord key) async {
+    keys[key.id] = jsonEncode(key.toJson());
+  }
+
+  @override
+  Future<void> deleteKey(String id) async {
+    keys.remove(id);
+  }
 
   @override
   Future<void> close() async {}

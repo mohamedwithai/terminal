@@ -86,7 +86,7 @@ Tamil as a fallback.
   in the report; don't change the package id. Golden tests for each main
   screen.
 
-## Milestone C: SSH keys inside the app
+## Milestone C: SSH keys inside the app *(done)*
 
 1. A "Keys" screen: generate Ed25519 (default) or RSA 4096 with an optional
    passphrase; import by paste or file picker.

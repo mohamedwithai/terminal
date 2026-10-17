@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:hive/hive.dart';
 import 'package:ssh_app/models/known_host.dart';
 import 'package:ssh_app/models/server_config.dart';
+import 'package:ssh_app/models/ssh_key_record.dart';
 import 'package:ssh_app/services/metadata_store.dart';
 import 'package:ssh_app/services/vault_exception.dart';
 
@@ -10,18 +11,21 @@ import 'package:ssh_app/services/vault_exception.dart';
 ///
 /// Call [Hive.initFlutter] before [HiveMetadataStore.open].
 class HiveMetadataStore implements MetadataStore {
-  HiveMetadataStore(this._servers, this._hosts);
+  HiveMetadataStore(this._servers, this._hosts, this._keys);
 
   static const serversBoxName = 'server_configs';
   static const knownHostsBoxName = 'known_hosts';
+  static const keysBoxName = 'ssh_keys';
 
   final Box<String> _servers;
   final Box<String> _hosts;
+  final Box<String> _keys;
 
   static Future<HiveMetadataStore> open() async {
     final servers = await Hive.openBox<String>(serversBoxName);
     final hosts = await Hive.openBox<String>(knownHostsBoxName);
-    return HiveMetadataStore(servers, hosts);
+    final keys = await Hive.openBox<String>(keysBoxName);
+    return HiveMetadataStore(servers, hosts, keys);
   }
 
   @override
@@ -94,9 +98,39 @@ class HiveMetadataStore implements MetadataStore {
   }
 
   @override
+  Future<List<SshKeyRecord>> listKeys() async {
+    final keys = [for (final raw in _keys.values) _readKey(raw)];
+    keys.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return keys;
+  }
+
+  @override
+  Future<SshKeyRecord?> getKey(String id) async {
+    final raw = _keys.get(id);
+    return raw == null ? null : _readKey(raw);
+  }
+
+  @override
+  Future<void> putKey(SshKeyRecord key) {
+    return _keys.put(key.id, jsonEncode(key.toJson()));
+  }
+
+  @override
+  Future<void> deleteKey(String id) => _keys.delete(id);
+
+  @override
   Future<void> close() async {
     await _servers.close();
     await _hosts.close();
+    await _keys.close();
+  }
+
+  SshKeyRecord _readKey(String raw) {
+    try {
+      return SshKeyRecord.fromJson(_decodeObject(raw));
+    } on FormatException {
+      throw VaultException('A saved SSH key could not be read.');
+    }
   }
 
   /// Hive key for one host/port pair. A null separator keeps the port and

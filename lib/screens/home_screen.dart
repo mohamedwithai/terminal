@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:ssh_app/screens/coming_soon_screen.dart';
 import 'package:ssh_app/screens/hosts_screen.dart';
+import 'package:ssh_app/screens/keys/keys_screen.dart';
 
 /// The bottom navigation: Hosts, Keys, Snippets and Files.
 class HomeScreen extends StatefulWidget {
@@ -22,12 +23,7 @@ class _HomeScreenState extends State<HomeScreen> {
         index: _tab,
         children: const [
           HostsScreen(),
-          ComingSoonScreen(
-            title: 'Keys',
-            icon: Icons.key_outlined,
-            message: 'Generate and import SSH keys once, then use them for '
-                'any host.',
-          ),
+          KeysScreen(),
           ComingSoonScreen(
             title: 'Snippets',
             icon: Icons.code,

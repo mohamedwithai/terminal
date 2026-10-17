@@ -45,6 +45,13 @@ dependencies:
   hive: 2.2.3
   hive_flutter: 1.1.0
   dartssh2: 4.1.0
+  # Direct pins for what the key generator uses; both are already dartssh2
+  # dependencies at these versions.
+  pinenacl: 0.6.0
+  pointycastle: 4.0.0
+  # Import a key from a file, and share a public key (checked 2026-10-17).
+  file_picker: 13.1.0
+  share_plus: 13.3.1
   xterm: 4.0.0
 
 dev_dependencies:

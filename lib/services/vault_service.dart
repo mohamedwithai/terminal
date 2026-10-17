@@ -5,13 +5,19 @@ import 'package:ssh_app/models/auth_type.dart';
 import 'package:ssh_app/models/known_host.dart';
 import 'package:ssh_app/models/server_config.dart';
 import 'package:ssh_app/models/server_credentials.dart';
+import 'package:ssh_app/models/ssh_key_record.dart';
 import 'package:ssh_app/services/metadata_store.dart';
 import 'package:ssh_app/services/private_key_validator.dart';
 import 'package:ssh_app/services/secure_store.dart';
+import 'package:ssh_app/services/ssh_key_material.dart';
 import 'package:ssh_app/services/vault_exception.dart';
+import 'package:uuid/uuid.dart';
 
 /// Secure-storage key for one server's credentials.
 String credentialStorageKey(String serverId) => 'cred_$serverId';
+
+/// Secure-storage key for one saved SSH key's private key and passphrase.
+String keyStorageKey(String keyId) => 'key_$keyId';
 
 /// Saves server metadata in [MetadataStore] and secrets in [SecureStore].
 ///
@@ -45,8 +51,253 @@ class VaultService {
     return _lock(() => _metadata.getServer(id));
   }
 
+  /// What to sign in with. For a server that uses a saved key this is that
+  /// key's material, resolved from the key store.
   Future<ServerCredentials?> readCredentials(String serverId) {
+    return _lock(() async {
+      final server = await _metadata.getServer(serverId);
+      final keyId = server?.keyId;
+      if (server?.authType == AuthType.privateKey && keyId != null) {
+        return _readKeyMaterial(keyId);
+      }
+      return _readCredentials(serverId);
+    });
+  }
+
+  /// Only what was stored for this server itself, for the edit form. A
+  /// server that uses a saved key has no private key of its own.
+  Future<ServerCredentials?> readOwnCredentials(String serverId) {
     return _lock(() => _readCredentials(serverId));
+  }
+
+  Future<List<SshKeyRecord>> listKeys() => _lock(_metadata.listKeys);
+
+  Future<SshKeyRecord?> getKey(String id) {
+    return _lock(() => _metadata.getKey(id));
+  }
+
+  /// The private key and passphrase of a saved key.
+  Future<ServerCredentials> readKeyMaterial(String keyId) {
+    return _lock(() => _readKeyMaterial(keyId));
+  }
+
+  /// Saves a key whose [info] came from [inspectPrivateKey] or
+  /// [generateKey]. The secret is written first and removed again if the
+  /// record cannot be written. The same key (same fingerprint) is not saved
+  /// twice.
+  Future<SshKeyRecord> addKey({
+    required String name,
+    required String privateKey,
+    String? passphrase,
+    required KeyInfo info,
+  }) {
+    return _lock(() async {
+      final trimmed = name.trim();
+      if (trimmed.isEmpty) {
+        throw VaultValidationException({'name': 'Enter a name for this key.'});
+      }
+      if (trimmed.length > 60) {
+        throw VaultValidationException({
+          'name': 'Use a name of 60 characters or fewer.',
+        });
+      }
+      final existing = await _metadata.listKeys();
+      for (final key in existing) {
+        if (key.fingerprint == info.fingerprint) {
+          throw VaultException('This key is already saved as "${key.name}".');
+        }
+      }
+      final record = SshKeyRecord(
+        id: const Uuid().v4(),
+        name: trimmed,
+        type: info.type,
+        publicKey: info.publicKey,
+        fingerprint: info.fingerprint,
+        encrypted: info.encrypted,
+        createdAt: _clock().toUtc(),
+      );
+      await _writeKey(record, privateKey, info.encrypted ? passphrase : null);
+      return record;
+    });
+  }
+
+  Future<SshKeyRecord> renameKey(String id, String name) {
+    return _lock(() async {
+      final key = await _metadata.getKey(id);
+      if (key == null) {
+        throw VaultException('This key no longer exists.');
+      }
+      final trimmed = name.trim();
+      if (trimmed.isEmpty || trimmed.length > 60) {
+        throw VaultValidationException({
+          'name': 'Use a name of 1 to 60 characters.',
+        });
+      }
+      final renamed = key.copyWith(name: trimmed);
+      await _metadata.putKey(renamed);
+      return renamed;
+    });
+  }
+
+  /// The servers that sign in with the saved key [keyId].
+  Future<List<ServerConfig>> serversUsingKey(String keyId) {
+    return _lock(() => _serversUsingKey(keyId));
+  }
+
+  /// Removes a saved key, unless a server still uses it. The secret goes
+  /// first, as for servers.
+  Future<void> deleteKey(String id) {
+    return _lock(() async {
+      final users = await _serversUsingKey(id);
+      if (users.isNotEmpty) {
+        final names = users.map((server) => server.label).join(', ');
+        throw VaultException(
+          users.length == 1
+              ? 'This key is used by $names. Change that host first.'
+              : 'This key is used by ${users.length} hosts ($names). '
+                    'Change them first.',
+        );
+      }
+      await _secure.delete(keyStorageKey(id));
+      await _metadata.deleteKey(id);
+    });
+  }
+
+  /// Moves private keys pasted into individual servers into the key store.
+  ///
+  /// Each server then points at its key and its own copy is cleared. The
+  /// same key on several servers becomes one entry. Writes are ordered so a
+  /// failure never loses a key: the key is stored first, the server points
+  /// at it second, and the old copy is removed last. A key that cannot be
+  /// read is left where it is. Returns how many servers were migrated.
+  Future<int> migratePastedKeys() {
+    return _lock(() async {
+      var migrated = 0;
+      final servers = await _metadata.listServers();
+      final byFingerprint = {
+        for (final key in await _metadata.listKeys()) key.fingerprint: key,
+      };
+      final names = {for (final key in byFingerprint.values) key.name};
+      for (final server in servers) {
+        if (server.authType != AuthType.privateKey) {
+          continue;
+        }
+        final own = await _readCredentials(server.id);
+        final pem = own?.privateKey;
+        if (pem == null || pem.trim().isEmpty) {
+          continue;
+        }
+        if (server.keyId != null) {
+          // Pointed at a key by an earlier run that stopped before clearing.
+          await _clearOwnCredentials(server.id);
+          continue;
+        }
+        final KeyInfo info;
+        try {
+          info = await inspectPrivateKeyInBackground(
+            pem,
+            own?.passphrase,
+            comment: server.label,
+          );
+        } on FormatException {
+          continue;
+        }
+        var record = byFingerprint[info.fingerprint];
+        if (record == null) {
+          record = SshKeyRecord(
+            id: const Uuid().v4(),
+            name: _uniqueName('${server.label} key', names),
+            type: info.type,
+            publicKey: info.publicKey,
+            fingerprint: info.fingerprint,
+            encrypted: info.encrypted,
+            createdAt: _clock().toUtc(),
+          );
+          await _writeKey(record, pem.trim(), info.encrypted ? own?.passphrase : null);
+          byFingerprint[info.fingerprint] = record;
+          names.add(record.name);
+        }
+        await _metadata.putServer(server.copyWith(keyId: record.id));
+        await _clearOwnCredentials(server.id);
+        migrated++;
+      }
+      return migrated;
+    });
+  }
+
+  String _uniqueName(String base, Set<String> taken) {
+    if (!taken.contains(base)) {
+      return base;
+    }
+    for (var n = 2;; n++) {
+      final candidate = '$base $n';
+      if (!taken.contains(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  Future<void> _clearOwnCredentials(String serverId) {
+    return _secure.write(
+      credentialStorageKey(serverId),
+      jsonEncode(const ServerCredentials().toJson()),
+    );
+  }
+
+  Future<List<ServerConfig>> _serversUsingKey(String keyId) async {
+    return [
+      for (final server in await _metadata.listServers())
+        if (server.keyId == keyId && server.authType == AuthType.privateKey)
+          server,
+    ];
+  }
+
+  Future<void> _writeKey(
+    SshKeyRecord record,
+    String privateKey,
+    String? passphrase,
+  ) async {
+    final secretKey = keyStorageKey(record.id);
+    try {
+      await _secure.write(
+        secretKey,
+        jsonEncode(
+          ServerCredentials(
+            privateKey: privateKey,
+            passphrase: passphrase,
+          ).toJson(),
+        ),
+      );
+    } catch (error) {
+      throw VaultException(
+        'Could not save the key to secure storage. $error',
+      );
+    }
+    try {
+      await _metadata.putKey(record);
+    } catch (error) {
+      await _secure.delete(secretKey);
+      throw VaultException('Could not save the key. $error');
+    }
+  }
+
+  Future<ServerCredentials> _readKeyMaterial(String keyId) async {
+    final raw = await _secure.read(keyStorageKey(keyId));
+    if (raw == null) {
+      throw VaultException(
+        'The saved key for this host is missing. Pick another key in the '
+        'host settings.',
+      );
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) {
+        throw const FormatException('Expected a JSON object.');
+      }
+      return ServerCredentials.fromJson(Map<String, dynamic>.from(decoded));
+    } on FormatException {
+      throw VaultException('A saved key could not be read.');
+    }
   }
 
   /// Inserts or replaces [config] and its secrets.
@@ -106,7 +357,11 @@ class VaultService {
     ServerConfig config,
     ServerCredentials credentials,
   ) async {
-    final normalized = config.normalized();
+    var normalized = config.normalized();
+    if (normalized.authType != AuthType.privateKey) {
+      // A password host has no key.
+      normalized = normalized.copyWith(clearKeyId: true);
+    }
     final errors = normalized.fieldErrors;
     final storedCredentials = await _credentialsFor(normalized, credentials, errors);
     if (errors.isNotEmpty) {
@@ -157,6 +412,14 @@ class VaultService {
         }
         return ServerCredentials(password: password.isEmpty ? null : password);
       case AuthType.privateKey:
+        final keyId = config.keyId;
+        if (keyId != null) {
+          // The key material is read from the key store when connecting.
+          if (await _metadata.getKey(keyId) == null) {
+            errors['keyId'] = 'That saved key no longer exists. Pick another.';
+          }
+          return const ServerCredentials();
+        }
         final privateKey = credentials.privateKey?.trim() ?? '';
         final passphrase = _blankToNull(credentials.passphrase);
         if (privateKey.isEmpty) {
